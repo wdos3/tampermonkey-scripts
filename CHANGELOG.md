@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.3 — 2026-10-19
+
+- Add `@updateURL` and `@downloadURL` pointing to the stable, authenticated GitHub Raw route on `main` for the private repository.
+- Use Tampermonkey's built-in updater without adding runtime requests, dependencies, access tokens, or new script permissions.
+- Document the one-time installation, same-profile GitHub sign-in, update checks, automatic installation, and future version bumps. Preserve the existing script identity and saved settings.
+
 ## 1.9.2 — 2026-10-18
 
 - Define numeric setting labels, defaults, ranges, and applicable modes once for panel construction, preference handling, and saved-run validation.

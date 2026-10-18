@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.9.2
+// @version      1.9.3
+// @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
+// @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @description  Gathering, combat, bosses, and quest queues with food, limits, recovery, and manual verification handoff.
 // @match        https://dankscape.com/*
 // @run-at       document-idle
@@ -16,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.9.2';
+  const VERSION = '1.9.3';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
