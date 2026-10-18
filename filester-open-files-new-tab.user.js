@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         Filester: Open Files in New Tabs
 // @namespace    local.filester.open-files
-// @version      1.1.1
+// @version      1.1.2
+// @updateURL    https://github.com/wdos3/filester-userscripts/raw/refs/heads/main/filester-open-files-new-tab.user.js
+// @downloadURL  https://github.com/wdos3/filester-userscripts/raw/refs/heads/main/filester-open-files-new-tab.user.js
 // @description  Middle-click or right-click a Filester file card to open its file page in a new tab.
 // @match        https://filester.me/f/*
 // @match        https://www.filester.me/f/*
