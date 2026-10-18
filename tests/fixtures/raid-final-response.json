@@ -1,0 +1,13 @@
+{
+  "source": "Observed through native raid controls on 2026-10-18; no form tokens captured.",
+  "hero": "Heroism",
+  "boss": "Bal'gar the Gluttonous",
+  "raidId": "4746",
+  "bossHPBefore": 292,
+  "bossHPAfter": 0,
+  "bossMaximum": 2500,
+  "stateAfter": "Defeated",
+  "damageBefore": 2208,
+  "damageAfter": 2514,
+  "flash": "You struck for 306 and felled Bal'gar the Gluttonous! Rewards are split by damage dealt."
+}
