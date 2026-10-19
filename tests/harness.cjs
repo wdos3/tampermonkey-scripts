@@ -76,7 +76,7 @@ function fixture(t, options = {}) {
   }
 
   function renderContent(token = 'fixture-token', cooldown = false) {
-    document.querySelector('section.content').innerHTML = mode === 'slayer' ? options.slayerContent(state, token) : mode === 'quest' ? options.questContent(state, token) : mode === 'arena' ? arenaContent(state.arena, token, cooldown)
+    document.querySelector('section.content').innerHTML = mode === 'diary' ? options.diaryContent(state, token) : mode === 'slayer' ? options.slayerContent(state, token) : mode === 'quest' ? options.questContent(state, token) : mode === 'arena' ? arenaContent(state.arena, token, cooldown)
       : mode === 'raid' ? raidContent(state.raid, token, cooldown, options.raidCatalog) : content(skill, token, cooldown, options.locked);
   }
   if (mode !== 'gather') renderContent();
@@ -138,8 +138,9 @@ function fixture(t, options = {}) {
         if (!potion || potion.quantity < 1) throw new Error('Fixture submitted an unavailable potion');
         potion.quantity -= 1;
         if (!options.noPotionBoost) {
-          state.boosts = state.boosts.filter(boost => boost.stat !== potion.stat);
-          state.boosts.push({ stat: potion.stat, boost: potion.boost, expiresAt: clock.now + (potion.duration ?? 300) * 1000 });
+          const stats = potion.stat === 'combat' ? ['attack', 'strength', 'defense'] : [potion.stat];
+          state.boosts = state.boosts.filter(boost => !stats.includes(boost.stat));
+          state.boosts.push(...stats.map(stat => ({ stat, boost: potion.boost, expiresAt: clock.now + (potion.duration ?? 300) * 1000 })));
         }
       } else if (kind === 'engage') {
         state.arena = { active: true, name: selectedId === '2' ? 'Other Foe' : options.enemyName || 'Field Mouse', zone: state.arena.zone, hp: options.enemyHP ?? 8, log: 'The hero and foe have entered the arena.' };
@@ -197,12 +198,15 @@ function fixture(t, options = {}) {
     if (event.defaultPrevented) return;
     event.preventDefault();
     const form = event.target;
-    if (form.querySelector('button').disabled) return;
-    form.querySelector('button').disabled = true;
-    const payload = Object.fromEntries(new window.FormData(form));
+    const button = event.submitter || form.querySelector('button');
+    assert.ok(button, 'A native submitter must be present');
+    if (button.disabled) return;
+    const payload = Object.fromEntries(new window.FormData(form, button));
+    button.disabled = true;
     const startedAt = clock.now;
     const requestURL = new URL(form.getAttribute('action') || window.location.href, window.location.href).href;
     state.requests.push(payload);
+    if (mode === 'diary') { options.diarySubmit?.(payload, state, window); return; }
     if (mode === 'slayer') { options.slayerSubmit?.(payload, state, window); return; }
     if (mode === 'quest') {
       options.questSubmit?.(payload, state, window);

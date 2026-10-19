@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.9.5
+// @version      1.10.0
 // @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
-// @description  Gathering, combat, bosses, and quest queues with food, limits, recovery, and manual verification handoff.
+// @description  Gathering, combat, raids, quests, Slayer, and Diaries with food, potions, limits, and verification recovery.
 // @match        https://dankscape.com/*
 // @run-at       document-idle
 // @sandbox      DOM
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.9.5';
+  const VERSION = '1.10.0';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -75,6 +75,7 @@
         : context?.state !== 'running' ? 'Click Test sound or Start to enable audio on this page.'
         : required && lastChimeAt !== null ? `Last chime: ${new Date(lastChimeAt).toLocaleTimeString()}. Repeats every minute.`
         : 'Sound ready. Human-check reminders repeat every minute.');
+      ui.soundStatus.hidden = !issues;
     }
 
     function getContext() {
@@ -270,24 +271,27 @@
     const QUEST_KEY = 'dankscape-assistant:quest-queue:v1';
     const MISSING_QUEST_REASON = 'No longer listed on the quest board; completion unconfirmed.';
     const SKILLS = new Set(['mining', 'woodcutting', 'fishing', 'herblore']);
-    const POTION_STATS = { attack: 'Attack', strength: 'Strength', defense: 'Defence', ranged: 'Ranged', magic: 'Magic' };
+    const POTION_STATS = { combat: 'Combat', attack: 'Attack', strength: 'Strength', defense: 'Defence', ranged: 'Ranged', magic: 'Magic' };
+    const COMBAT_STATS = ['attack', 'strength', 'defense'];
+    const DIARY_TIERS = ['Easy', 'Medium', 'Hard', 'Extreme', 'Legendary', 'Insane'];
+    const TASK_BOARDS = { quest: '/quests.php', slayer: '/slayer.php', diary: '/diaries.php' };
     const NUMBER_SETTINGS = {
       interval: { label: 'Delay after result (s)', value: 0.1, min: 0.1, max: 3600, step: 0.1 },
       reserve: { label: 'Keep this much energy', value: 0, min: 0, max: 1000000 },
       actions: { label: 'Maximum actions', value: 100, min: 1, max: 1000000 },
       minutes: { label: 'Maximum minutes', value: 30, min: 1, max: 1440 },
       meals: { label: 'Maximum food items per run', value: 100, min: 1, max: 1000000 },
-      battles: { label: 'Maximum arena wins', value: 100, min: 1, max: 1000000, modes: ['arena', 'quest', 'slayer'] },
+      battles: { label: 'Maximum arena wins', value: 100, min: 1, max: 1000000, modes: ['arena', 'quest', 'slayer', 'diary'] },
       quests: { label: 'Maximum quests', value: 20, min: 1, max: 1000, modes: ['quest'], optional: true },
-      drinks: { label: 'Maximum potions per run', value: 100, min: 1, max: 1000000, modes: ['arena', 'raid', 'quest', 'slayer'], optional: true },
+      drinks: { label: 'Maximum potions per run', value: 100, min: 1, max: 1000000, modes: ['arena', 'raid', 'quest', 'slayer', 'diary'], optional: true },
       maxRaids: { label: 'Maximum raids', value: 1, min: 1, max: 1000000, modes: ['raid'], optional: true },
     };
     const CHECK_SETTINGS = ['autoEat', 'autoHeal', 'autoRecover', 'wait'];
     const DEFAULTS = { target: '', ...Object.fromEntries(Object.entries(NUMBER_SETTINGS).map(([id, setting]) => [id, setting.value])),
-      autoEat: true, autoHeal: true, autoRecover: true, food: '', wait: false, potions: [] };
+      autoEat: true, autoHeal: true, autoRecover: true, food: '', wait: false, potions: [], diaryTier: 'Easy' };
 
-    const mode = { '/gather.php': 'gather', '/arena.php': 'arena', '/raid.php': 'raid', '/quests.php': 'quest', '/slayer.php': 'slayer' }[location.pathname] || 'hall';
-    const onTaskBoard = mode === 'quest' || mode === 'slayer';
+    const mode = { '/gather.php': 'gather', '/arena.php': 'arena', '/raid.php': 'raid', '/quests.php': 'quest', '/slayer.php': 'slayer', '/diaries.php': 'diary' }[location.pathname] || 'hall';
+    const onTaskBoard = Object.hasOwn(TASK_BOARDS, mode);
     const skill = new URLSearchParams(location.search).get('skill') || 'mining';
     const settingsKey = `settings:${mode === 'gather' ? skill : mode}`;
     let run = null;
@@ -313,8 +317,8 @@
     let gatherCatalog = null;
     let potionCatalog = [];
     let potionRead = null;
-    let slayerHero = '';
-    let staleSlayerBoard = false;
+    let taskHero = '';
+    let staleTaskBoard = false;
     let verificationTimer = null;
     let openingVerification = false;
     let message = 'Ready. Choose a target and press Start.';
@@ -339,6 +343,10 @@
         label { display: block; margin: 8px 0; } input[type=number], select { display: block; width: 100%;
           margin-top: 4px; padding: 5px 7px; background: #0c1613; color: #f0e9d9; border: 1px solid #617267; border-radius: 4px; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+        details { border-top: 1px solid #41544a; padding: 7px 0; } summary { cursor: pointer; color: #d5dfd6; }
+        .sound-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+        .sound-controls label { margin: 3px 0; font-size: 12px; } .sound-controls button { padding: 3px 7px; font-size: 12px; }
+        #soundStatus { width: 100%; }
         .check { display: flex; gap: 8px; align-items: flex-start; } .check input { margin-top: 4px; }
         footer { padding: 0 14px 14px; flex-shrink: 0; } #status { margin: 0 0 8px; overflow-wrap: anywhere; }
         #stats, .hint { color: #b8c6ba; font-size: 12px; } #stats { margin: 0 0 10px; }
@@ -369,31 +377,30 @@
       element('div', { id: 'controls' }, [
         element('p', {}, [element('a', { href: '/gather.php' }, 'Gathering'), ' · ',
           element('a', { href: '/arena.php' }, 'Combat'), ' · ', element('a', { href: '/raid.php' }, 'Raids'),
-          ' · ', element('a', { href: '/quests.php' }, 'Quests'), ' · ', element('a', { href: '/slayer.php' }, 'Slayer')]),
-        element('p', { id: 'mode-info' }),
-        element('p', { class: 'hint' }, 'Settings are shared across gathering, combat, raids, quests, and Slayer. Targets stay specific to each activity.'),
-        element('div', { id: 'quest-settings', hidden: '' }, [numberSetting('quests'),
-          element('p', { class: 'hint' }, 'Finish active quests first, then eligible contracts in board order. Deliveries hand in the requested items. Unsupported or locked objectives are skipped.')]),
+          ' · ', element('a', { href: '/quests.php' }, 'Quests'), ' · ', element('a', { href: '/slayer.php' }, 'Slayer'),
+          ' · ', element('a', { href: '/diaries.php' }, 'Diaries')]),
         element('label', {}, [element('span', { id: 'target-label' }, 'Resource'), element('select', { id: 'target', 'aria-label': 'Resource' })]),
-        element('div', { class: 'grid' }, ['interval', 'reserve', 'actions', 'minutes'].map(numberSetting)),
-        battleSettings,
-        element('div', { id: 'raid-settings', hidden: '' }, [numberSetting('maxRaids'),
-          element('p', { class: 'hint' }, 'Set above 1 to summon the same boss again after defeat. All run limits remain cumulative.')]),
-        checkSetting('Heal immediately whenever HP is below full', 'autoHeal'),
-        checkSetting('Automatically eat when energy is too low to act', 'autoEat'),
-        element('label', {}, ['Food', element('select', { id: 'food', 'aria-label': 'Food' })]),
-        numberSetting('meals'),
-        element('div', { id: 'potion-settings', hidden: '' }, [
-          element('p', {}, 'Maintain combat potion buffs'),
-          ...Object.entries(POTION_STATS).map(([stat, label]) => element('label', {}, [label,
-            element('select', { id: `potion-${stat}`, 'aria-label': `${label} potion` })])),
+        element('div', { id: 'diary-settings', hidden: '' }, [element('label', {}, ['Diary tier',
+          element('select', { id: 'diary-tier', 'aria-label': 'Diary tier' }, DIARY_TIERS.map(tier => element('option', { value: tier }, tier)))])]),
+        element('details', { id: 'limits-settings' }, [element('summary', {}, 'Run limits'),
+          element('div', { class: 'grid' }, ['interval', 'reserve', 'actions', 'minutes'].map(numberSetting)), battleSettings,
+          element('div', { id: 'quest-settings', hidden: '' }, [numberSetting('quests')]),
+          element('div', { id: 'raid-settings', hidden: '' }, [numberSetting('maxRaids')])]),
+        element('details', { id: 'food-settings' }, [element('summary', {}, 'Food & healing'),
+          checkSetting('Heal immediately whenever HP is below full', 'autoHeal'),
+          checkSetting('Automatically eat when energy is too low to act', 'autoEat'),
+          element('label', {}, ['Food', element('select', { id: 'food', 'aria-label': 'Food' })]), numberSetting('meals')]),
+        element('details', { id: 'potion-settings', hidden: '' }, [element('summary', {}, 'Potions'),
+          element('div', { class: 'grid' }, Object.entries(POTION_STATS).map(([stat, label]) => element('label', {}, [label,
+            element('select', { id: `potion-${stat}`, 'aria-label': `${label} potion`, title: stat === 'combat'
+              ? 'Covers Attack, Strength and Defence; takes priority over their individual potions.' : '' })]))),
           numberSetting('drinks'),
-          element('p', { class: 'hint' }, 'Choose one potion per stat. Drink only when that stat’s boost expires. None disables that stat.'),
           element('button', { id: 'load-potions', type: 'button', hidden: '' }, 'Load potion choices from Combat'),
           element('p', { id: 'potion-info', class: 'hint', role: 'status' }),
         ]),
-        checkSetting('Wait for regeneration when food recovery is unavailable', 'wait'),
-        checkSetting('Automatically recover stalled responses', 'autoRecover'),
+        element('details', {}, [element('summary', {}, 'Recovery'),
+          checkSetting('Wait for regeneration when food recovery is unavailable', 'wait'),
+          checkSetting('Automatically recover stalled responses', 'autoRecover')]),
       ]),
       element('footer', {}, [
         element('div', { id: 'quest-progress', hidden: '' }, [
@@ -420,9 +427,6 @@
         element('p', { id: 'stats' }),
         element('div', { class: 'buttons' }, [element('button', { id: 'start', type: 'button' }, 'Start'),
           element('button', { id: 'stop', type: 'button', disabled: '' }, 'Stop')]),
-        element('p', { class: 'hint' }, ['Alt + Shift + G: start/stop · Esc: stop', element('br'),
-          'Alt + Shift + P: show panel', element('br'), 'Drag the header to move. Focus ⠿ and press Home to reset.', element('br'),
-          'Start begins a new run. Restore & resume continues a saved run. A sent action may finish after Stop.']),
       ]),
     ]));
     // Keep the panel outside the game's body/content replacement targets.
@@ -578,7 +582,7 @@
       return page.querySelector('aside.sidebar h2')?.textContent.trim()
         || (page.querySelector('section.content h1')?.textContent.trim() === 'Quest Board'
           ? page.querySelector('section.content .card p.dim strong')?.textContent.trim() : '')
-        || (page === document && mode === 'slayer' ? slayerHero : '') || '';
+        || (page === document && ['slayer', 'diary'].includes(mode) ? taskHero : '') || '';
     }
     function arenaZone(page = document) { return page.querySelector('section.content h1')?.textContent.trim() || ''; }
 
@@ -593,6 +597,7 @@
       if (!['autoEat', 'autoHeal', 'wait'].every(key => typeof config[key] === 'boolean')
         || typeof config.food !== 'string' || config.food.length > 200) return false;
       if (config.autoRecover !== undefined && typeof config.autoRecover !== 'boolean') return false;
+      if (config.diaryTier !== undefined && !DIARY_TIERS.includes(config.diaryTier)) return false;
       if (config.potions !== undefined && (!Array.isArray(config.potions) || config.potions.length > Object.keys(POTION_STATS).length
         || !config.potions.every(potion => potion && Object.hasOwn(POTION_STATS, potion.stat)
           && typeof potion.name === 'string' && potion.name.length > 0 && potion.name.length <= 200)
@@ -820,6 +825,7 @@
     }
 
     function targets() {
+      if (mode === 'diary') return (diaryBoard()?.zones || []).map(zone => ({ key: zone.name, name: zone.name, available: !zone.locked }));
       if (mode === 'slayer') return [{ key: 'auto', name: 'Automatically repeat Slayer tasks', available: true }];
       if (mode === 'quest') return [{ key: 'auto', name: 'Automatically work through eligible quests', available: true }];
       if (mode === 'gather') return gatheringTargets();
@@ -940,16 +946,128 @@
       return { completed, task: { target, goal, progress: numberFrom(progress[1]), zone, claim, hunt, fight } };
     }
 
-    async function identifySlayerHero() {
+    function diaryBoard(page = document) {
+      const content = page.querySelector('section.content');
+      if (!/^(?:📜\s*)?Zone Diaries$/.test(content?.querySelector('h2')?.textContent.trim() || '')) return null;
+      const zones = [];
+      for (const card of content.querySelectorAll(':scope > .card')) {
+        const heading = card.querySelector(':scope > h3');
+        if (!heading) continue;
+        const title = heading.cloneNode(true);
+        title.querySelectorAll('span').forEach(node => node.remove());
+        const name = title.textContent.trim();
+        const metadata = heading.querySelector('span')?.textContent.trim().match(/^Lv ([\d,]+)\+.*?·\s*([\d,]+) monsters$/i);
+        if (!name || !metadata || zones.some(zone => zone.name === name)) return null;
+        const expected = numberFrom(metadata[2]);
+        const monsters = [];
+        for (const count of heading.nextElementSibling?.children || []) {
+          const match = count.textContent.trim().match(/^×\s*([\d,]+)$/);
+          if (!match) continue;
+          const control = count.previousElementSibling;
+          const target = control?.textContent.trim();
+          const kills = numberFrom(match[1]);
+          if (!target || target.length > 200 || kills === null || monsters.some(mob => mob.name === target)) return null;
+          monsters.push({ name: target, kills, link: control.matches('a.mob-link[href]') ? control : null,
+            button: control.matches('button.mob-link[type="submit"]') ? control : null });
+        }
+        if (!expected || monsters.length !== expected) return null;
+        const tiers = [];
+        for (const requirements of card.querySelectorAll('ul.diary-reqs')) {
+          const panel = requirements.parentElement;
+          const tier = panel.querySelector('strong')?.textContent.trim();
+          const lines = Array.from(requirements.querySelectorAll('li')).map(node => node.textContent.replace(/\s+/g, ' ').trim());
+          const each = lines.map(line => line.match(/Kill every monster here (at least once|([\d,]+) times)\s*—\s*([\d,]+) of ([\d,]+) done/)).find(Boolean);
+          const total = lines.map(line => line.match(/([\d,]+) kills here in total\s*—\s*([\d,]+) so far/)).find(Boolean);
+          const perMonster = each && (each[1] === 'at least once' ? 1 : numberFrom(each[2]));
+          if (!DIARY_TIERS.includes(tier) || tiers.some(entry => entry.name === tier) || !perMonster
+            || numberFrom(each[4]) !== expected || lines.length !== (total ? 2 : 1)) return null;
+          const minimumTotal = total ? numberFrom(total[1]) : 0;
+          const totalKills = total ? numberFrom(total[2]) : 0;
+          if (minimumTotal === null || totalKills === null) return null;
+          const claimed = Array.from(panel.querySelectorAll('p, span, strong, button'))
+            .some(node => /^(?:✓\s*)?Claimed(?:\s*✓)?[.!]?$/i.test(node.textContent.trim()));
+          const claim = Array.from(panel.querySelectorAll('button[type="submit"], button:not([type])'))
+            .find(button => /^Claim\b/i.test(button.textContent.replace(/^[^\p{L}]+/u, '').trim()));
+          tiers.push({ name: tier, perMonster, minimumTotal, totalKills, claimed, claim,
+            ready: monsters.every(mob => mob.kills >= perMonster) && totalKills >= minimumTotal });
+        }
+        if (tiers.length !== DIARY_TIERS.length) return null;
+        zones.push({ name, locked: /\blocked\b/i.test(heading.textContent), monsters, tiers });
+      }
+      return zones.length ? { zones } : null;
+    }
+
+    function confirmDiaryCommand() {
+      const command = questQueue.command;
+      if (!command) return true;
+      const zone = diaryBoard()?.zones.find(zone => zone.name === questQueue.config.target);
+      if (!zone?.tiers.find(tier => tier.name === command.tier)?.claimed) return false;
+      if (!questQueue.finished.includes(command.tier)) questQueue.finished.push(command.tier);
+      questQueue.uncertain = false;
+      questQueue.current = null;
+      delete questQueue.command;
+      questQueue.nextAt = Date.now() + questQueue.config.interval * 1000;
+      return saveQuestQueue();
+    }
+
+    function tickDiaryBoard() {
+      if (Date.now() < run.nextAt) { schedule(); return; }
+      const zone = diaryBoard()?.zones.find(zone => zone.name === questQueue.config.target);
+      if (!zone || zone.locked || !taskHero || taskHero !== questQueue.character) return stop('Cannot verify the selected diary area or active hero.');
+      if (questQueue.command || questQueue.uncertain) return stop('The last diary request is unconfirmed. Inspect Diaries before resuming.');
+      const tier = zone.tiers.find(tier => tier.name === questQueue.config.diaryTier);
+      if (!tier) return stop('The selected diary tier is unavailable.');
+      if (tier.claimed) return stop(`${zone.name}: ${tier.name} diary achieved.`);
+      const current = questQueue.current;
+      if (current && (!zone.monsters.some(mob => mob.name === current.target && mob.kills >= current.progress))) return stop('Diary kill counts went backwards or the target disappeared. Inspect Diaries.');
+      const claim = zone.tiers.find(entry => DIARY_TIERS.indexOf(entry.name) <= DIARY_TIERS.indexOf(tier.name)
+        && entry.ready && !entry.claimed && entry.claim && !entry.claim.disabled);
+      if (claim) {
+        const target = { form: claim.claim.form, button: claim.claim };
+        if (!validForm(target, 'diary-claim')) return stop('The diary claim control changed. No request was sent.');
+        questQueue.command = { kind: 'claim', tier: claim.name };
+        questQueue.uncertain = true;
+        return navigateQuest('board', target);
+      }
+      if (tier.ready) return stop(`${zone.name}: ${tier.name} requirements complete. Claim the reward using Diaries.`);
+      const limit = questLimit();
+      if (limit) return stop(limit);
+      const mob = zone.monsters.find(mob => mob.kills < tier.perMonster)
+        || (tier.totalKills < tier.minimumTotal && zone.monsters.find(mob => mob.link || mob.button));
+      if (!mob) return stop('No verified monster can advance the selected diary.');
+      questQueue.current = { name: `${zone.name} · ${tier.name}`, kind: 'kill', mode: 'arena', skill: '', target: mob.name,
+        goal: Math.max(tier.perMonster, mob.kills + Math.max(0, tier.minimumTotal - tier.totalKills)),
+        progress: mob.kills, zone: zone.name, stalled: 0, totalOnly: mob.kills >= tier.perMonster };
+      // Finish individual requirements before allocating any extra area-total kills.
+      if (mob.kills < tier.perMonster) questQueue.current.goal = tier.perMonster;
+      if (!saveQuestQueue()) return stop(questError);
+      if (mob.button) {
+        const travel = { form: mob.button.form, button: mob.button };
+        if (!validForm(travel, 'diary-travel')) return stop('The diary travel control is unavailable or changed.');
+        return navigateQuest('activity', travel);
+      }
+      if (!mob.link || !diaryFightURL(mob.link)) return stop('The selected diary monster has no verified fighting route.');
+      navigateQuest('activity', { link: mob.link });
+    }
+
+    function diaryFightURL(link) {
+      try {
+        const url = new URL(link.getAttribute('href'), location.href);
+        return url.origin === location.origin && url.pathname === '/arena.php' && url.searchParams.get('from') === 'diary'
+          && /^\d{1,30}$/.test(url.searchParams.get('target')) ? url : null;
+      } catch { return null; }
+    }
+
+    async function identifyTaskHero() {
       const controller = new AbortController();
       questRead = controller;
       const timeout = setTimeout(() => controller.abort(), RECOVERY_FETCH_TIMEOUT_MS);
-      status('Reading the active hero from Combat before continuing Slayer…');
+      status('Reading the active hero from Combat…');
       try {
         const page = await fetchQuestPage(new URL('/arena.php', location.origin), controller.signal);
         if (controller.signal.aborted) throw new Error('Hero lookup was cancelled.');
         const guard = humanCheckLink(page);
-        if (guard) { serverGuardLink = guard; throw new Error('Complete the game’s human check manually before resuming Slayer.'); }
+        if (guard) { serverGuardLink = guard; throw new Error('Complete the game’s human check manually before resuming.'); }
         const hero = characterName(page);
         if (!hero || !health(page) || health(page).current === 0) throw new Error('Cannot verify a living active hero in Combat.');
         return hero;
@@ -979,7 +1097,7 @@
     function tickSlayerBoard() {
       if (Date.now() < run.nextAt) { schedule(); return; }
       const board = slayerBoard();
-      if (!board || !slayerHero || slayerHero !== questQueue.character) return stop('Cannot verify the Slayer board or active hero.');
+      if (!board || !taskHero || taskHero !== questQueue.character) return stop('Cannot verify the Slayer board or active hero.');
       if (questQueue.command || questQueue.uncertain) return stop('The last Slayer request is unconfirmed. Inspect the board before resuming.');
       const current = questQueue.current;
       if (current && (board.completed !== current.boardCompleted || !board.task || board.task.target !== current.target
@@ -1024,8 +1142,11 @@
         || typeof value.character !== 'string' || !value.character || value.character.length > 500) return false;
       if (!validRunConfig(value.config) || !validRunProgress(value) || !Number.isSafeInteger(value.recoveries)
         || !Number.isSafeInteger(value.config.quests)) return false;
-      if (value.source !== undefined && value.source !== 'slayer') return false;
+      if (value.source !== undefined && !['slayer', 'diary'].includes(value.source)) return false;
       if (!validVerificationIntent(value.verification)) return false;
+      if (value.source === 'diary' && (!DIARY_TIERS.includes(value.config.diaryTier)
+        || (value.current && (value.current.kind !== 'kill' || value.current.mode !== 'arena' || value.current.zone !== value.config.target))
+        || (value.command && (value.command.kind !== 'claim' || !DIARY_TIERS.includes(value.command.tier))))) return false;
       if (value.source === 'slayer') {
         if (!Number.isSafeInteger(value.tasksCompleted) || value.tasksCompleted < 0 || value.tasksCompleted > 1000000) return false;
         if (value.command && (!['assign', 'claim'].includes(value.command.kind) || !Number.isSafeInteger(value.command.before)
@@ -1037,6 +1158,7 @@
         && entry.name.length <= 500 && typeof entry.reason === 'string' && entry.reason.length <= 500)) return false;
       if (!value.current) return value.current === null;
       const current = value.current;
+      if (current.totalOnly !== undefined && typeof current.totalOnly !== 'boolean') return false;
       if (current.unmeasured !== undefined && (!Number.isSafeInteger(current.unmeasured)
         || current.unmeasured < 0 || current.unmeasured > 1000000)) return false;
       return ['kill', 'collect'].includes(current.kind) && ['gather', 'arena'].includes(current.mode)
@@ -1072,7 +1194,7 @@
     }
 
     function questLimit() {
-      if (questQueue.source !== 'slayer' && questQueue.finished.length >= questQueue.config.quests) return 'Quest limit reached.';
+      if (!questQueue.source && questQueue.finished.length >= questQueue.config.quests) return 'Quest limit reached.';
       if (questQueue.completed >= questQueue.config.actions) return 'Action limit reached.';
       if (questQueue.wins >= questQueue.config.battles) return 'Arena win limit reached.';
       return '';
@@ -1099,7 +1221,7 @@
         finally { ownSubmit = false; }
         if (!submitted) return stop('The task navigation button did not submit.');
       } else {
-        ui['quest-navigation'].href = questQueue.source === 'slayer' ? '/slayer.php' : '/quests.php';
+        ui['quest-navigation'].href = TASK_BOARDS[questQueue.source || 'quest'];
         (action?.link || ui['quest-navigation']).click();
       }
       status(destination === 'board' ? 'Checking task progress on the board…' : `Travelling for ${questQueue.current.name}…`);
@@ -1136,6 +1258,7 @@
     }
 
     function tickQuestBoard() {
+      if (mode === 'diary') return tickDiaryBoard();
       if (mode === 'slayer') return tickSlayerBoard();
       if (pending) {
         if (Date.now() >= pending.deadline) return stop('The quest request was not confirmed. Inspect the board before restarting.');
@@ -1232,13 +1355,13 @@
     async function startQuestQueue(resume = false) {
       if (starting || run?.active || pending || restoring || potionRead || questError || humanCheck().required) return;
       if (resume && (!questQueue || (questQueue.uncertain && !questQueue.command))) return status('An unconfirmed task action needs inspection. Discard the queue after inspecting it.');
-      if (resume && onTaskBoard && mode !== (questQueue.source === 'slayer' ? 'slayer' : 'quest')) return status('Open the saved run’s own board before resuming it.');
+      if (resume && onTaskBoard && mode !== (questQueue.source || 'quest')) return status('Open the saved run’s own board before resuming it.');
       const config = resume ? questQueue.config : settingsFromUI();
       if (!config || (!resume && !onTaskBoard)) return;
       if (checkpoint && (!resume || !checkpoint.canResume)) return status('Inspect and discard the saved activity before starting quests.');
-      if (resume && mode !== 'slayer' && questQueue.character !== characterName()) return status('The active hero changed. Return to the original hero or discard the quest queue.');
+      if (resume && !['slayer', 'diary'].includes(mode) && questQueue.character !== characterName()) return status('The active hero changed. Return to the original hero or discard the quest queue.');
       if (resume && Date.now() >= questQueue.deadline) return status('The quest queue’s original time limit expired. Discard it and start a new queue.');
-      if (resume && staleSlayerBoard) {
+      if (resume && staleTaskBoard) {
         return void holdGameLock(() => {
           questQueue.active = true;
           navigateQuest('board');
@@ -1246,26 +1369,29 @@
       }
       await holdGameLock(async () => {
         const attempt = generation;
-        if (mode === 'slayer') {
+        if (['slayer', 'diary'].includes(mode)) {
           starting = true;
-          slayerHero = await identifySlayerHero();
+          taskHero = await identifyTaskHero();
           if (attempt !== generation) return;
           starting = false;
-          if (resume && (questQueue.source !== 'slayer' || questQueue.character !== slayerHero)) return stop('The active hero or task queue changed. Return to the original hero.');
-          const board = slayerBoard();
-          if (!board || (resume && !confirmSlayerCommand(board))) return stop('The Slayer request was not confirmed. Inspect the board; no request was repeated.');
+          if (resume && (questQueue.source !== mode || questQueue.character !== taskHero)) return stop('The active hero or task queue changed. Return to the original hero.');
+          if (mode === 'slayer') {
+            const board = slayerBoard();
+            if (!board || (resume && !confirmSlayerCommand(board))) return stop('The Slayer request was not confirmed. Inspect the board; no request was repeated.');
+          } else if (!diaryBoard() || (resume && !confirmDiaryCommand())) return stop('The diary claim was not confirmed. Inspect Diaries; no request was repeated.');
         }
         if (!resume) saveSettings(config);
         if (!resume) questQueue = { version: 1, active: true, uncertain: false, phase: 'board', continuation: null,
           config: { ...config }, character: characterName(), deadline: Date.now() + config.minutes * 60000,
           ...runProgress(), finished: [], skipped: [], current: null };
         if (!resume && mode === 'slayer') Object.assign(questQueue, { source: 'slayer', tasksCompleted: 0 });
+        if (!resume && mode === 'diary') questQueue.source = 'diary';
         questQueue.active = true;
         if (!questQueue.character || !saveQuestQueue()) return stop(questError || 'Cannot identify the quest hero.');
         if (checkpoint && !clearCheckpoint()) return stop(checkpointError);
         run = { active: true, config: { ...config }, ...runProgress(questQueue),
           deadline: questQueue.deadline, blockedAt: null, finishReason: '' };
-        if (!onTaskBoard || staleSlayerBoard) return navigateQuest('board');
+        if (!onTaskBoard || staleTaskBoard) return navigateQuest('board');
         tick();
       });
     }
@@ -1275,14 +1401,14 @@
       questQueue.continuation = null;
       if (!saveQuestQueue()) return stop(questError);
       if (humanCheck().required) return pauseForVerification();
-      if (destination === 'board' && mode === (questQueue.source === 'slayer' ? 'slayer' : 'quest')) return void startQuestQueue(true);
+      if (destination === 'board' && mode === (questQueue.source || 'quest')) return void startQuestQueue(true);
       if (questQueue.character !== characterName()) return stop('The active hero changed. Task automation paused.');
       const current = questQueue.current;
       if (destination !== 'activity' || !current || mode !== current.mode || (mode === 'gather' && skill !== current.skill)) return stop('Quest travel reached an unexpected page. Inspect it before resuming.');
       if (mode === 'arena' && ((current.zone && arenaZone() !== current.zone) || (arenaState().active && arenaState().name !== current.target))) return stop('The quest area or active enemy does not match the objective.');
       const selected = targets().find(target => target.available && (mode === 'gather' ? target.item === current.target : target.name === current.target));
       if (!selected) {
-        if (questQueue.source === 'slayer') return stop('The exact Slayer target is unavailable. No different enemy was selected.');
+        if (questQueue.source) return stop('The exact task target is unavailable. No different enemy was selected.');
         if (!skipQuest(current.name, 'The required activity is locked or unavailable.')) return stop(questError);
         return void startQuestQueue(true);
       }
@@ -1308,6 +1434,10 @@
       const current = questQueue?.phase === 'activity' && questQueue.current;
       if (!current || !['gather', 'strike'].includes(prior.kind)) return '';
       if (prior.kind === 'strike' && !arenaState(page).victory) return '';
+      if (questQueue.source === 'diary') {
+        current.progress = Math.min(current.goal, current.progress + 1);
+        return '';
+      }
       const texts = flashes.filter(flash => flash.classList.contains('flash-ok')).map(flash => flash.textContent);
       if (prior.kind === 'strike') texts.push(arenaState(page).log);
       const progressPattern = new RegExp(`(?:^|[\\r\\n]|📜\\s*)\\s*${escapeRegExp(current.name)}\\s*:\\s*([\\d,]+)\\s*/\\s*([\\d,]+)`, 'i');
@@ -1439,11 +1569,11 @@
 
     function potionChoices(page = document) {
       return Array.from(page.querySelectorAll('#quick-drink-select option[data-elixir]')).flatMap(option => {
-        const effect = option.textContent.match(/\(\+([\d,]+)\s+(Attack|Strength|Defen[cs]e|Ranged|Magic)\)/i);
+        const effect = option.textContent.match(/\(\+([\d,]+)\s+(Attack\/Strength\/Defen[cs]e|Attack|Strength|Defen[cs]e|Ranged|Magic)\)/i);
         const quantity = option.textContent.match(/×\s*([\d,]+)\s*$/);
         const name = option.dataset.elixir?.trim();
         if (!name || !effect || !(numberFrom(effect[1]) > 0)) return [];
-        return [{ name, stat: effect[2].toLowerCase().replace('defence', 'defense'), boost: numberFrom(effect[1]),
+        return [{ name, stat: effect[2].includes('/') ? 'combat' : effect[2].toLowerCase().replace('defence', 'defense'), boost: numberFrom(effect[1]),
           available: !option.disabled && numberFrom(quantity?.[1] || '') > 0, option }];
       });
     }
@@ -1493,7 +1623,7 @@
         const page = await fetchQuestPage(new URL('/arena.php', location.origin), controller.signal);
         if (potionRead !== controller || controller.signal.aborted) return;
         if (humanCheckLink(page)) throw new Error('Complete the game’s human check manually in Combat, then try again.');
-        if (mode === 'slayer' && !slayerHero) slayerHero = characterName(page);
+        if (['slayer', 'diary'].includes(mode) && !taskHero) taskHero = characterName(page);
         if (!characterName() || characterName(page) !== characterName()) throw new Error('The active hero changed.');
         if (!page.getElementById('quick-drink-select')) throw new Error('Quick drink is unavailable. Open Combat to inspect your potion inventory.');
         const warning = refreshPotions(selectedPotions(), page);
@@ -1520,15 +1650,15 @@
           if (row.querySelectorAll('.boost-timer').length !== 1) break;
           const label = row.cloneNode(true);
           label.querySelector('.boost-timer').remove();
-          effect = label.textContent.match(/\+([\d,]+)\s*(Attack|Strength|Defen[cs]e|Ranged|Magic)\b/i);
+          effect = label.textContent.match(/\+([\d,]+)\s*(Attack\/Strength\/Defen[cs]e|Attack|Strength|Defen[cs]e|Ranged|Magic)\b/i);
           if (effect) break;
         }
         if (!effect) return null;
-        const stat = effect[2].toLowerCase().replace('defence', 'defense');
-        if (boosts.has(stat) || !(numberFrom(effect[1]) > 0)) return null;
+        const stats = effect[2].includes('/') ? COMBAT_STATS : [effect[2].toLowerCase().replace('defence', 'defense')];
+        if (stats.some(stat => boosts.has(stat)) || !(numberFrom(effect[1]) > 0)) return null;
         // The game's data-secs is decremented ahead of its displayed countdown.
         // Read the visible timer so 0:01 does not trigger an early renewal.
-        boosts.set(stat, { boost: numberFrom(effect[1]), seconds: remaining ? Number(remaining[1]) * 60 + Number(remaining[2]) : 0 });
+        for (const stat of stats) boosts.set(stat, { boost: numberFrom(effect[1]), seconds: remaining ? Number(remaining[1]) * 60 + Number(remaining[2]) : 0 });
       }
       return boosts;
     }
@@ -1538,7 +1668,9 @@
       if (!['arena', 'raid'].includes(mode) || !selections.length) return false;
       const boosts = potionBoosts();
       if (!boosts) { stop('Cannot read active potion boosts. No potion was sent.'); return true; }
-      const selection = selections.find(potion => !(boosts.get(potion.stat)?.seconds > 0));
+      const combat = selections.some(potion => potion.stat === 'combat');
+      const selection = selections.find(potion => !(combat && COMBAT_STATS.includes(potion.stat))
+        && (potion.stat === 'combat' ? COMBAT_STATS : [potion.stat]).some(stat => !(boosts.get(stat)?.seconds > 0)));
       if (!selection) return false;
       if (run.drunk >= (run.config.drinks ?? DEFAULTS.drinks)) { stop('Potion item limit reached.'); return true; }
       const potion = potionChoices().find(potion => potion.name === selection.name && potion.stat === selection.stat && potion.available);
@@ -1564,7 +1696,7 @@
       const guard = humanCheck();
       checkSounds?.update(guard.required);
       for (const control of ui.controls.querySelectorAll('input, select')) control.disabled = busy || Boolean(checkpoint || questQueue);
-      ui['potion-settings'].hidden = !['arena', 'raid', 'quest', 'slayer'].includes(mode);
+      ui['potion-settings'].hidden = !['arena', 'raid', 'quest', 'slayer', 'diary'].includes(mode);
       ui['load-potions'].hidden = !onTaskBoard;
       ui['load-potions'].disabled = busy || guard.required || Boolean(checkpoint || questQueue);
       ui.start.disabled = busy || guard.required || Boolean(checkpoint || questQueue || questError) || Boolean(checkpointError) || mode === 'hall' || !ui.target.value || !navigator.locks?.request;
@@ -1572,14 +1704,20 @@
       ui['battle-settings'].hidden = mode !== 'arena' && !onTaskBoard;
       ui['quest-settings'].hidden = mode !== 'quest';
       ui['raid-settings'].hidden = mode !== 'raid';
+      ui['diary-settings'].hidden = mode !== 'diary';
       ui['quest-progress'].hidden = !questQueue && !questError;
       ui['quest-resume'].disabled = busy || guard.required || !questQueue || (questQueue.uncertain && !questQueue.command) || Boolean(questError);
+      ui['quest-resume'].hidden = busy;
+      ui['quest-discard'].hidden = busy;
       const slayer = questQueue?.source === 'slayer';
-      ui['quest-resume'].textContent = slayer ? 'Resume Slayer' : 'Resume quests';
-      ui['quest-discard'].textContent = slayer ? 'Discard Slayer run' : 'Discard quest queue';
+      const diary = questQueue?.source === 'diary';
+      ui['quest-resume'].textContent = diary ? 'Resume diary' : slayer ? 'Resume Slayer' : 'Resume quests';
+      ui['quest-discard'].textContent = diary ? 'Discard diary run' : slayer ? 'Discard Slayer run' : 'Discard quest queue';
       ui['quest-discard'].disabled = busy;
       ui['quest-info'].textContent = questError || (questQueue ? `${questQueue.active ? 'Quest queue' : 'Paused quest queue'}: ${questQueue.finished.length}/${questQueue.config.quests} completed${questQueue.current ? ` · ${questQueue.current.name}: ${questQueue.current.progress}/${questQueue.current.goal}` : ''}.${questQueue.uncertain ? ' The last request is unconfirmed; inspect its result before discarding and restarting.' : ''}${questQueue.skipped.length ? ` Skipped: ${questQueue.skipped.map(entry => `${entry.name} (${entry.reason})`).join('; ')}` : ''}` : '');
       if (slayer && !questError) ui['quest-info'].textContent = `${questQueue.active ? 'Slayer' : 'Paused Slayer'}: ${questQueue.tasksCompleted} tasks completed${questQueue.current ? ` · ${questQueue.current.target}: ${questQueue.current.progress}/${questQueue.current.goal}` : ''}.${questQueue.uncertain ? ' The last request is unconfirmed; inspect the board.' : ''}`;
+      if (diary && !questError) ui['quest-info'].textContent = `${questQueue.active ? 'Diary' : 'Paused diary'}: ${questQueue.config.target} · ${questQueue.config.diaryTier}${questQueue.current ? ` · ${questQueue.current.target}: ${questQueue.current.progress}/${questQueue.current.goal}${questQueue.current.totalOnly ? ' (area total)' : ''}` : ''}.${questQueue.uncertain ? ' Waiting for confirmation.' : ''}`;
+      ui['quest-info'].hidden = Boolean(diary && !questQueue.current && !questError);
       ui.recovery.hidden = !checkpoint && !checkpointError && !guard.required;
       ui.resume.hidden = !checkpoint;
       ui.resume.disabled = busy || guard.required || Boolean(checkpointError || questQueue) || !navigator.locks?.request;
@@ -1658,6 +1796,7 @@
         if (!(report ? ui[id].reportValidity() : ui[id].checkValidity())) return null;
       }
       return { target: ui.target.value, food: ui.food.value, potions: selectedPotions(),
+        diaryTier: ui['diary-tier'].value,
         ...Object.fromEntries(Object.keys(NUMBER_SETTINGS).map(id => [id, Number(ui[id].value)])),
         ...Object.fromEntries(CHECK_SETTINGS.map(id => [id, ui[id].checked])) };
     }
@@ -1736,6 +1875,7 @@
     }
 
     function applySettings(config) {
+      ui['diary-tier'].value = config.diaryTier || DEFAULTS.diaryTier;
       for (const id of Object.keys(NUMBER_SETTINGS)) ui[id].value = Number.isFinite(config[id]) ? config[id] : DEFAULTS[id];
       for (const id of CHECK_SETTINGS) ui[id].checked = id === 'autoRecover' ? config[id] !== false : config[id] === true;
       refreshTargets(typeof config.target === 'string' ? config.target : '');
@@ -1893,6 +2033,16 @@
       }
       if (destination.origin !== location.origin || target.form.hasAttribute('data-confirm')) return false;
       const hasFields = (...names) => names.every(name => target.form.querySelector(`input[name="${name}"]`));
+      if (kind.startsWith('diary-')) {
+        if (mode !== 'diary' || target.button.disabled || target.form.hasAttribute('onsubmit')
+          || target.button.form !== target.form || !hasFields('csrf', 'action')) return false;
+        const zone = diaryBoard()?.zones.find(zone => zone.name === questQueue.config.target);
+        if (!zone || zone.locked) return false;
+        if (kind === 'diary-travel') return destination.pathname === '/arena.php' && hasFields('zone_id', 'from')
+          && target.button.name === 'target' && zone.monsters.some(mob => mob.name === questQueue.current?.target && mob.button === target.button);
+        return destination.pathname === '/diaries.php' && zone.tiers.some(tier => tier.ready && !tier.claimed && tier.claim === target.button
+          && DIARY_TIERS.indexOf(tier.name) <= DIARY_TIERS.indexOf(questQueue.config.diaryTier));
+      }
       if (kind.startsWith('slayer-')) {
         if (mode !== 'slayer' || target.button.disabled || target.form.hasAttribute('onsubmit')
           || !hasFields('csrf', 'action')) return false;
@@ -2149,9 +2299,11 @@
         return gained && ok.some(flash => /\bYou (?:eat|ate)\b/i.test(flash.textContent));
       }
       if (prior.kind === 'drink') {
-        const boost = potionBoosts(page)?.get(prior.stat);
+        const boosts = potionBoosts(page);
+        const stats = prior.stat === 'combat' ? COMBAT_STATS : [prior.stat];
         const message = new RegExp(`\\bYou (?:drink|drank) (?:the )?${escapeRegExp(prior.name)}(?=\\s*(?:[.!?—–]|$))`, 'i');
-        return Boolean(boost?.seconds > 0 && boost.boost >= prior.boost && ok.some(flash => message.test(flash.textContent)));
+        return Boolean(stats.every(stat => boosts?.get(stat)?.seconds > 0 && boosts.get(stat).boost >= prior.boost)
+          && ok.some(flash => message.test(flash.textContent)));
       }
       if (prior.kind === 'engage') {
         const battle = arenaState(page);
@@ -2421,19 +2573,17 @@
         saveQuestQueue();
       }
     } catch (error) { questError = `Could not read the quest queue: ${error.message}`; }
-    const targetLabel = { gather: 'Resource', arena: 'Enemy', raid: 'Boss', quest: 'Quest selection', slayer: 'Slayer tasks', hall: 'Target' }[mode];
+    const targetLabel = { gather: 'Resource', arena: 'Enemy', raid: 'Boss', quest: 'Quest selection', slayer: 'Slayer tasks', diary: 'Area', hall: 'Target' }[mode];
     ui['target-label'].textContent = targetLabel;
     ui.target.setAttribute('aria-label', targetLabel);
-    ui['mode-info'].textContent = { gather: `Gathering: ${skill}`, arena: 'Arena: repeat the selected enemy.',
-      raid: 'Raid: fight this boss; Maximum raids above 1 repeats the same boss after defeat.', quest: 'Quests: complete eligible kill and gathering contracts automatically.',
-      slayer: 'Slayer: continue the current task, claim its reward, then take another. Shared run limits apply across tasks.', hall: 'Open Gathering, Combat, Raids, or Quests above; Slayer is also available.' }[mode];
-    if (mode === 'hall') message = 'Open Gathering, Combat, Raids, or Quests above to automate actions.';
+    if (mode === 'hall') message = 'Choose an activity above.';
     else if (!ui.target.value) message = mode === 'gather' ? 'No unlocked gathering actions. Choose another skill or meet its level requirement.' : 'Choose a target using the game’s controls first.';
     if (!navigator.locks?.request) message = 'Web Locks are unavailable. A browser with Web Locks support is required.';
     if (humanCheck().required) message = 'Complete the game’s human check yourself before restoring or starting an activity.';
     else if (checkpoint) message = 'Saved activity ready. Use its Restore control or discard it to begin a new run.';
     if (checkpointError) message = checkpointError;
-    if (questQueue) message = questQueue.source === 'slayer' ? 'Slayer run saved. Resume it or discard it to begin a new run.' : 'Quest queue saved. Resume it or discard it to begin a new run.';
+    if (questQueue) message = questQueue.source === 'diary' ? 'Diary run saved. Resume it or discard it to begin a new run.'
+      : questQueue.source === 'slayer' ? 'Slayer run saved. Resume it or discard it to begin a new run.' : 'Quest queue saved. Resume it or discard it to begin a new run.';
     if (questError) message = questError;
     checkSounds = createCheckSounds(ui, () => humanCheck().required);
     render();
@@ -2525,10 +2675,10 @@
           if (checkpoint) { checkpoint.restoreRequested = false; checkpoint.verification = false; writeCheckpoint(); }
           questQueue = readQuestQueue();
           if (questQueue) { questQueue.active = false; questQueue.continuation = null; saveQuestQueue(); }
-          staleSlayerBoard = mode === 'slayer' && questQueue?.source === 'slayer';
+          staleTaskBoard = ['slayer', 'diary'].includes(mode) && questQueue?.source === mode;
         } catch (error) { questError = `Could not restore the quest queue: ${error.message}`; }
         status(questError || checkpointError || (checkpoint ? 'Returned to a cached activity. Inspect the page before using Restore & resume.'
-          : staleSlayerBoard ? 'Returned to a cached Slayer board. Resume Slayer reloads fresh task controls before continuing.'
+          : staleTaskBoard ? `Returned to a cached ${mode === 'slayer' ? 'Slayer' : 'diary'} board. Resume reloads fresh task controls before continuing.`
           : 'Returned to a previous page. Use Resume quests to check fresh progress, or discard the queue.'));
       }
       scheduleVerification();

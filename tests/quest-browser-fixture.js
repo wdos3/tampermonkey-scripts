@@ -7,6 +7,9 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
   slayer: { completed: 2, task: { target: 'Yeti', progress: 21, goal: 22, zone: 'Meadowbrook Fields' } },
   autoCompleteKill: new URLSearchParams(location.search).get('completion') === 'automatic',
   verificationTest: new URLSearchParams(location.search).get('verification') === 'manual',
+  diaries: ['Meadowbrook Fields', 'Volcanic Caverns'].map((name, index) => ({ name,
+    monsters: [{ id: '1', name: 'Field Mouse', kills: index ? 9 : 10 }, { id: '2', name: 'Other Foe', kills: index ? 9 : 10 },
+      { id: '3', name: 'Satisfied Foe', kills: 230 }], tiers: { Easy: { claimed: true }, Medium: { claimed: !index } } })),
   quests: [
     { id: 'hunt', name: 'Meadow Patrol', target: 'Field Mouse', kind: 'kill', goal: 3, progress: 0, group: 'Active' },
     { id: 'fish', name: 'Feast Supplies', target: 'Fixture resource', kind: 'collect', goal: 8, progress: 0,
@@ -14,9 +17,12 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
     { id: 'locked', name: 'Locked contract', target: 'Other Foe', kind: 'kill', goal: 1, progress: 0, group: 'Locked' },
   ],
 };
-const mode = location.pathname === '/guard.php' ? 'guard' : location.pathname === '/slayer.php' ? 'slayer' : location.pathname === '/quests.php' ? 'quest' : location.pathname === '/arena.php' ? 'arena' : 'gather';
+const mode = location.pathname === '/guard.php' ? 'guard' : location.pathname === '/diaries.php' ? 'diary' : location.pathname === '/slayer.php' ? 'slayer' : location.pathname === '/quests.php' ? 'quest' : location.pathname === '/arena.php' ? 'arena' : 'gather';
 const skill = new URLSearchParams(location.search).get('skill') || 'fishing';
 const slayerFight = new URLSearchParams(location.search).get('from') === 'slayer';
+const diaryFight = new URLSearchParams(location.search).get('from') === 'diary';
+const diaryMonster = diaryFight && game.diaries.find(zone => zone.name === game.zone)?.monsters
+  .find(mob => mob.id === new URLSearchParams(location.search).get('target'));
 let drinkMessage = '';
 game.visits ||= { quest: 0, arena: 0, gather: 0, slayer: 0 };
 game.visits[mode] = (game.visits[mode] || 0) + 1;
@@ -38,6 +44,9 @@ function render() {
       save();
       location.assign('/arena.php');
     });
+  } else if (mode === 'diary') {
+    document.querySelector('aside')?.remove();
+    section.innerHTML = diaryContent(game.diaries.map(zone => ({ ...zone, away: zone.name !== game.zone })), `fixture-token-${game.requests}`);
   } else if (mode === 'slayer') {
     document.querySelector('aside')?.remove();
     section.innerHTML = slayerContent({ ...game.slayer, away: game.slayer.task?.zone !== game.zone }, `fixture-token-${game.requests}`);
@@ -50,7 +59,7 @@ function render() {
     document.querySelector('.hp-text').textContent = `${game.hp} / 100 HP`;
     document.getElementById('hud-xp').innerHTML = `${skill} <strong>100</strong> · ${game.requests * 18} / 10000 XP`;
     section.innerHTML = mode === 'arena' ? arenaContent({ active: game.activeFight, hp: 8, zone: game.zone,
-      name: slayerFight ? game.slayer.task.target : 'Field Mouse',
+      name: diaryFight ? diaryMonster.name : slayerFight ? game.slayer.task.target : 'Field Mouse',
       log: game.activeFight ? 'The battle begins.' : game.combatLog || (game.quests[0].progress
         ? `You strike the Field Mouse for 8 damage. You slay the Field Mouse!\n📜 Meadow Patrol: ${game.quests[0].progress} / ${game.quests[0].goal}` : '') })
       : content(skill, `fixture-token-${game.requests}`);
@@ -66,7 +75,7 @@ function render() {
   if (mode !== 'guard' && game.guardRequired) {
     section.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Quick human check</h2><a href="/guard.php?from=${location.pathname.slice(1, -4)}">Verify I’m human</a></div>`);
   }
-  document.getElementById('quest-test-summary').textContent = `Mock requests: ${game.requests} · Completed quests: ${game.quests.filter(q => q.group === 'Chronicled').length} · Slayer tasks completed: ${game.slayer.completed - 2} · Food used: ${20 - game.food} · Board visits: ${game.visits.quest} · Arena visits: ${game.visits.arena} · Gathering visits: ${game.visits.gather} · Manual checks: ${game.manualChecks || 0}`;
+  document.getElementById('quest-test-summary').textContent = `Mock requests: ${game.requests} · Completed quests: ${game.quests.filter(q => q.group === 'Chronicled').length} · Slayer tasks completed: ${game.slayer.completed - 2} · Food used: ${20 - game.food} · Board visits: ${game.visits.quest} · Arena visits: ${game.visits.arena} · Gathering visits: ${game.visits.gather} · Manual checks: ${game.manualChecks || 0} · Diary claims: ${game.diaryClaims || 0}`;
 }
 render();
 
@@ -76,11 +85,13 @@ document.addEventListener('submit', async event => {
   const form = event.target;
   const button = event.submitter || form.querySelector('button');
   if (button.disabled) return;
+  const body = new FormData(form, button);
+  const payload = Object.fromEntries(body);
   button.disabled = true;
-  const payload = Object.fromEntries(new FormData(form));
   game.requests += 1;
-  await fetch(new URL(form.getAttribute('action') || location.href, location.href), { method: 'POST', body: new FormData(form) });
-  if (game.verificationTest && !game.manualChecks && game.quests[0].progress === 1 && payload.action === 'swing') {
+  await fetch(new URL(form.getAttribute('action') || location.href, location.href), { method: 'POST', body });
+  const checkProgress = diaryFight ? game.diaries.find(zone => zone.name === game.zone)?.monsters[0].kills === 10 : game.quests[0].progress === 1;
+  if (game.verificationTest && !game.manualChecks && checkProgress && payload.action === 'swing') {
     game.guardRequired = true;
     save();
     render();
@@ -88,11 +99,19 @@ document.addEventListener('submit', async event => {
     document.dispatchEvent(new CustomEvent('dank:swapped'));
     return;
   }
+  if (mode === 'diary' && payload.action === 'claim') {
+    const zone = game.diaries[Number(payload.zone_id) - 1];
+    zone.tiers[payload.tier] = { ...zone.tiers[payload.tier], claimed: true };
+    game.diaryClaims = (game.diaryClaims || 0) + 1;
+    save();
+    location.assign('/diaries.php');
+    return;
+  }
   if (payload.zone_id) {
-    game.zone = payload.from === 'slayer' ? game.slayer.task.zone : 'Meadowbrook Fields';
+    game.zone = payload.from === 'diary' ? game.diaries[Number(payload.zone_id) - 1].name : payload.from === 'slayer' ? game.slayer.task.zone : 'Meadowbrook Fields';
     game.combatLog = '';
     save();
-    location.assign(payload.from === 'slayer' ? '/arena.php?target=1&from=slayer' : '/arena.php');
+    location.assign(payload.from === 'diary' ? `/arena.php?target=${payload.target}&from=diary` : payload.from === 'slayer' ? '/arena.php?target=1&from=slayer' : '/arena.php');
     return;
   }
   if (mode === 'slayer') {
@@ -114,14 +133,18 @@ document.addEventListener('submit', async event => {
   } else if (form.matches('.quick-drink')) {
     const potion = game.potions.find(potion => potion.id === payload.inv_id);
     potion.quantity -= 1;
-    game.boosts = game.boosts.filter(boost => boost.stat !== potion.stat);
-    game.boosts.push({ stat: potion.stat, boost: potion.boost, expiresAt: Date.now() + 300000 });
-    drinkMessage = `You drink the ${potion.name}. +${potion.boost} ${potion.stat === 'attack' ? 'Attack' : 'Strength'} — active for 5 more minutes.`;
+    const stats = potion.stat === 'combat' ? ['attack', 'strength', 'defense'] : [potion.stat];
+    game.boosts = game.boosts.filter(boost => !stats.includes(boost.stat));
+    game.boosts.push(...stats.map(stat => ({ stat, boost: potion.boost, expiresAt: Date.now() + 300000 })));
+    drinkMessage = `You drink the ${potion.name}. +${potion.boost} ${potion.stat === 'combat' ? 'Attack/Strength/Defence' : potion.stat === 'attack' ? 'Attack' : 'Strength'} — active for 5 more minutes.`;
   } else if (mode === 'arena') {
     if (payload.action === 'engage') game.activeFight = true;
     if (payload.action === 'swing') {
       game.activeFight = false;
-      if (slayerFight) {
+      if (diaryFight) {
+        diaryMonster.kills += 1;
+        game.combatLog = `You strike the ${diaryMonster.name} for 8 damage. You slay the ${diaryMonster.name}!`;
+      } else if (slayerFight) {
         game.slayer.task.progress += 1;
         game.combatLog = `You strike the ${game.slayer.task.target} for 8 damage. You slay the ${game.slayer.task.target}!`;
       } else game.quests[0].progress += 1;

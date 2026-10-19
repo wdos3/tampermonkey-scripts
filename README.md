@@ -1,6 +1,6 @@
 # DankScape Assistant
 
-A standalone Tampermonkey userscript for gathering, arena combat, raid/boss attacks, quests, and Slayer, with conservative energy recovery and immediate HP healing. Version **1.9.5** opens human-check notices automatically and resumes saved runs in every supported mode after you complete verification yourself. All modes share run preferences and support a 0.1-second delay. The file remains `dankscape-gather.user.js`, and the Tampermonkey metadata name remains **DankScape Gathering Assistant** so existing installations keep their identity.
+A standalone Tampermonkey userscript for gathering, arena combat, raid/boss attacks, quests, Slayer, and Diaries, with conservative energy recovery and immediate HP healing. Version **1.10.0** adds diary area/tier progression, Super Combat Elixir, and a compact panel. All modes share run preferences, support a 0.1-second delay, and resume saved runs after you complete human verification yourself. The file remains `dankscape-gather.user.js`, and the Tampermonkey metadata name remains **DankScape Gathering Assistant** so existing installations keep their identity.
 
 Version 1.2.1 strengthens panel startup and recovery. The panel appears on all DankScape pages; Start is available only on supported activity pages with an eligible target.
 
@@ -23,7 +23,9 @@ The metadata uses GitHub's authenticated `github.com/.../raw/...` route. It cont
 
 For future releases, increase `@version`, the visible `VERSION`, and the package versions together before pushing the updated standalone file to `main`. Tampermonkey compares `@version`; editing the server file without increasing it does not publish a newer version. The [metadata documentation](https://www.tampermonkey.net/documentation.php?locale=en&q=update_url) describes `@updateURL` and `@downloadURL`.
 
-The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, or Slayer. Ordinary page loads start stopped. **Start** begins the current mode; **Stop** or **Esc** stops it. **Alt + Shift + G** toggles Start/Stop. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, quest or Slayer travel, and saved verification handoffs can continue across page loads.
+The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, Slayer, or Diaries. Ordinary page loads start stopped. **Start** begins the current mode; **Stop** or **Esc** stops it. **Alt + Shift + G** toggles Start/Stop. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, task travel, and saved verification handoffs can continue across page loads.
+
+Expand **Run limits**, **Food & healing**, **Potions**, or **Recovery** to edit their settings. Repeated instructions and the text beneath Start/Stop were removed; status and counters remain visible. Saved settings and keyboard shortcuts still work. Normal sound-readiness text is hidden; audio errors remain visible.
 
 ## Automatic quests
 
@@ -50,6 +52,16 @@ Open **Slayer** and press **Start**. The Assistant continues an existing task, o
 There is no Slayer task-count cap; **Maximum quests** applies only to ordinary quests. Shared action, arena-win, time, food, potion, and recovery limits remain cumulative across every Slayer task. Raise these limits for longer runs. Reaching an action or win limit still permits claiming an earned reward, then stops before another assignment. The original time deadline also includes travel and manual verification. The script does not skip tasks or pay the skip fee.
 
 Slayer uses the existing combat healing, potion maintenance, response confirmation, cross-tab lock, and bounded recovery. Its page has no hero sidebar, so each board continuation first reads Arena to identify the living active hero. Native full-page assignment and claim requests are saved before submission; an unknown result is never automatically submitted again. A fresh board must prove the result. **Resume Slayer** continues a paused run, while **Stop** or **Discard Slayer run** clears it. Manual verification resumes through the Slayer board automatically, just like ordinary quests. Returning with Back/Forward pauses the run; Resume reloads fresh Slayer controls before continuing.
+
+## Automatic Diaries
+
+Open **Diaries**, choose **Area** and **Diary tier** (Easy, Medium, Hard, Extreme, Legendary, or Insane), configure the shared limits, then Start. The Assistant reads the page's recorded kill counts and native requirements. It travels using that area's monster control, fights only the selected monster until its remaining requirement is met, heals, then checks Diaries before selecting the next unfinished monster. Starting a later run reads fresh lifetime counts and skips monsters already at the requirement.
+
+The live page currently requires 1, 10, 50, 250, 500, and 1,000 kills of every monster for the six tiers. Medium also requires 250 total kills and Hard requires 1,500. These numbers are read from the page. Once all individual goals are satisfied, any remaining total is completed against the first available monster in the selected area; progress is marked **area total**. A completed individual count alone cannot satisfy a missing total-kill requirement.
+
+Ready rewards at or below the chosen tier use their native Claim controls, then a fresh board must confirm **Claimed** before another claim is permitted. The run stops once the selected tier is claimed. If its requirements are complete but no recognized Claim control is present, it stops with a message to claim using the game. It never chooses a higher tier or another area automatically. Stop/discard the saved run before choosing a new area or tier; Resume diary continues its original selection and budgets.
+
+Diaries reuse combat healing, selected potions, action/win/food/potion/time limits, shared locks, confirmed-response recovery, and automatic resume after manual verification. **Maximum quests** does not limit Diaries. Raise the default 100-action and 100-win limits for larger goals. Diary travel reads the active hero from Arena because the diary page has no sidebar; unexpected heroes, missing routes, regressed kill counts, unknown claims, and malformed boards pause the run. No game form or verification tokens are stored.
 
 ## Moving the Assistant
 
@@ -85,7 +97,7 @@ Browser autoplay rules can require interaction on a new page, and a muted tab or
 
 ### If the panel is missing
 
-After saving the complete v1.9.5 script, reload DankScape. The header should show **v1.9.5**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
+After saving the complete v1.10.0 script, reload DankScape. The header should show **v1.10.0**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
 
 A startup exception now displays an error panel with **Retry startup** and logs the cause with the prefix `[DankScape Assistant]`. If no panel or **Show DankScape Assistant** menu command exists, check browser injection permissions: the script's enabled toggle alone does not establish that it executed. Tampermonkey documents Chrome's separate **Allow User Scripts** permission in its [official setup FAQ](https://www.tampermonkey.net/faq.php?q=Q209). Browser extension site access must also include DankScape.
 
@@ -100,6 +112,7 @@ The original disappearance was reported across all pages, but the installed exte
 | Raid/Boss | Open an eligible boss fight and set Maximum raids. | Attack, heal, and maintain selected potions; repeat the same boss through All raids and Summon until a limit or stop condition. |
 | Quests | Open the Quest Board and set cumulative queue limits. | Accept supported eligible contracts, follow their activity routes, complete objectives, turn in rewards, and continue. |
 | Slayer | Open the Slayer Master and set shared run limits. | Continue or take a task, hunt its exact monster, claim the reward, and repeat. |
+| Diaries | Open Diaries, choose an area and target tier. | Skip satisfied monsters, complete the remaining per-monster/area-total kills, and claim the selected tier. |
 
 The script preserves the game's current equipment, combat style, prayer, and boss selection. Normal runs stay in the selected location; recovery can travel back to the saved arena area after verification or when you choose Restore & resume. It does not switch enemies during an active fight, change combat style, buy food or potions, or automate PvP. Raid repetition summons only the selected boss after a confirmed defeat. An unexpected change of boss or raid ID still pauses the run.
 
@@ -119,9 +132,11 @@ Missing or locked summon controls, a changed hero, a different boss, or an uncon
 
 ## Automatic combat potions
 
-Before starting a new Combat, Raid, or Quest run, scroll to **Maintain combat potion buffs**. Choose one owned potion for each desired stat: Attack, Strength, Defence, Ranged, and Magic. Multiple different stats can be enabled together; **None** leaves that stat alone. Potion use defaults to None for every stat.
+Before starting Combat, Raids, Quests, Slayer, or Diaries, expand **Potions**. Choose owned potions for Combat, Attack, Strength, Defence, Ranged, and Magic. **Super Combat Elixir** appears under Combat and covers Attack/Strength/Defence together. When selected, it takes priority over their individual choices, preventing redundant drinks; Ranged and Magic remain independent. **None** disables a choice. All choices default to None.
 
-The Quest Board keeps these selectors available even when the game hides Quick drink. Choices observed elsewhere are remembered across pages. If the list is empty or needs updating, click **Load potion choices from Combat** on the Quest Board. This reads the same hero’s Arena page in the background without leaving the board or submitting any game form. It has a ten-second timeout and can be cancelled with Stop or Escape. Remembered choices do not prove current stock: actual drinking always uses and validates the current combat page’s inventory and native form.
+Quest, Slayer, and Diary boards keep these selectors available when the game hides Quick drink. Choices observed elsewhere are remembered across pages. If the list is empty or needs updating, click **Load potion choices from Combat**. This reads the same hero’s Arena page in the background without leaving the board or submitting any game form. It has a ten-second timeout and can be cancelled with Stop or Escape. Remembered choices do not prove current stock: actual drinking always uses and validates the current combat page’s inventory and native form.
+
+A combined combat potion counts as one item and renews when any covered stat expires. Confirmation requires its named success message and all three corresponding boosts. Active covered stats are not individually topped up while Combat is selected. Both a combined boost row and separate stat timers are supported.
 
 The assistant drinks selected missing buffs sequentially, then continues combat. It reads each boost’s visible countdown independently and renews only the expired stat. It does not extend active timers or overwrite an active weaker boost with a stronger selected potion. The game’s `data-secs` attribute is one second ahead of its visible countdown, so `0:01` remains active until the display expires. HP healing takes priority over drinking, and no attack, meal, or drink overlaps an unconfirmed request. Ordinary gathering never drinks combat potions; quest potion settings apply to the queue’s combat stages.
 
@@ -137,7 +152,7 @@ Drinks use the current native **Quick drink** form and its selected inventory op
 | Energy reserve | 0 | Do not take an action that would leave less energy than this amount. |
 | Maximum actions | 100 | Counts confirmed gathers, arena strikes, and boss strikes. Engagement, eating, and drinking do not count. |
 | Maximum minutes | 30 | Includes responses, cooldowns, healing, regeneration, and manual verification. |
-| Maximum arena wins | 100 | Stop after this many victories; shown in Arena and Quests. |
+| Maximum arena wins | 100 | Cumulative victories across Arena, Quests, Slayer, and Diaries. |
 | Maximum raids | 1 | Includes the opened raid. Set above 1 to repeat the same boss after defeat; run budgets stay cumulative. |
 | Heal immediately | On | Eat as soon as the current page reports any missing HP, before another attack or gather. |
 | Automatically eat for energy | On | Eat only when energy is insufficient for the next action and reserve. |
@@ -154,7 +169,7 @@ The action and arena-win limits prevent further attacks. If the last allowed att
 
 Bosses may need more than the default 100 strikes. Raise **Maximum actions**, **Maximum food items**, and **Maximum minutes** to fit the fight you intend to run. A miss or zero-damage strike counts as one confirmed action and still triggers healing if HP was lost.
 
-Valid edits save immediately and are shared across Mining, Woodcutting, Fishing, Herblore, Arena, Raids, Quests, and Slayer. This includes delay, energy reserve, all run limits, food, healing/recovery options, and potion selections. Each activity retains its own target. Gathering preserves the hidden combat potion selections without drinking them. Idle tabs reload shared preferences when focused; running and saved runs retain their original budgets and deadline.
+Valid edits save immediately and are shared across Mining, Woodcutting, Fishing, Herblore, Arena, Raids, Quests, Slayer, and Diaries. This includes delay, energy reserve, all run limits, food, healing/recovery options, and potion selections. Each activity retains its own target. Gathering preserves the hidden combat potion selections without drinking them. Idle tabs reload shared preferences when focused; running and saved runs retain their original budgets and deadline.
 
 On upgrade, the first existing activity profile opened supplies the shared settings once. Other older profiles cannot replace them afterward. Existing chosen delays are preserved: set **Delay after result (s)** to **0.1** once to use the new minimum everywhere. New installations default to 0.1. The loop checks at 100 ms intervals, waits for responses, and respects native cooldowns; slow responses or background-tab throttling can extend the wait. Keep the relevant page open; returning to a tab does not generate a burst of missed clicks.
 
@@ -226,6 +241,8 @@ For v1.9.4, syntax validation and all 326 tests pass. The live Arena check was i
 
 For v1.9.5, syntax validation and all 342 tests pass. Three ordinary activity runs were interrupted by localhost mock checks. After manual mock completion, gathering automatically restored Shark Waters from Mining and stopped at two actions; Arena automatically restored Volcanic Caverns and Other Foe, then stopped after three attacks, two meals, and one victory; raids reopened ID 123, defeated it, summoned ID 124 once, and stopped after six attacks, six meals, and two completed raids. No Resume button was used and all three browser logs were free of warnings/errors. Regression tests also cover an interrupted repeat-raid catalogue handoff, cumulative potions, repeated checks, cached pages, cancellation, unknown requests, deadlines, identity, and shared locks. These are local fixture results; live Tampermonkey execution remains unverified.
 
+For v1.10.0, syntax validation and all 366 tests pass, including 19 diary cases and five combined-potion cases. Read-only live inspection established ten areas, monster count/travel markup, the six tiers and total-kill requirements, and the owned Super Combat Elixir label. A token-sanitized live DOM capture was parsed locally: all ten areas were recognized and Medium selected Field Mouse at 3/10, skipping satisfied monsters. The localhost browser completed Volcanic Caverns Medium from two monsters at 9/10 and another at 230 kills, used two attacks, two healing meals, and one combined potion, and claimed Medium once after a manual mock check and automatic resume. Browser logs contained no warnings/errors. The compact panel was visually checked. Real reward-claim markup was unavailable because no live tier was ready; claim controls, confirmation markers, and combined potion effects are modeled in fixtures. Live Tampermonkey execution and unattended live diary completion remain unverified.
+
 The installed script has no external JavaScript dependencies. npm is only needed for development:
 
 ```powershell
@@ -263,3 +280,5 @@ Append `?completion=automatic` to that fixture URL to model a kill quest moving 
 Append `?verification=manual` to interrupt the second combat victory with a mock human check. Set Maximum quests to 1 and Maximum actions to 3, then Start. The assistant opens the mock guard page and waits. Click **Complete mock check** yourself; the queue returns through the board and restores the quest's area without a Resume click. Only localhost is involved.
 
 For Slayer, use the same fixture server and open `/slayer.php`. It starts at 21/22 Yetis. Set Maximum actions to 5 and Start to finish and claim three tasks, including travel between two regions, then stop at the original cap. Load and select Attack and Strength potions to include both buffs. All actions remain on localhost.
+
+For Diaries, open `/diaries.php?verification=manual` on that server. Choose Volcanic Caverns and Medium, expand Run limits and set actions/wins to 2. Expand Potions, load choices, and select Super Combat Elixir under Combat. The fixture starts two monsters at 9/10 and a satisfied monster at 230 kills. It exercises travel, target switching, a manual mock check, automatic resume, healing, and claiming Medium at the native 250-total requirement. All claims and potion effects in this fixture are simulated.

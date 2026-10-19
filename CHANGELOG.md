@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.0 — 2026-10-19
+
+- Add a Diaries mode with area and six-tier selection. Read existing monster counts and per-monster/area-total requirements from the page, skip satisfied monsters, stay in Arena until the current target is done, then check the board and move to the next target. Use native travel and ready Claim controls; confirm claims before continuing and stop at the selected tier.
+- Reuse the task queue for diary hero checks, cumulative limits, healing, potions, response recovery, and automatic resume after manual verification. Preserve existing saved runs and script identity.
+- Add Super Combat Elixir as one combined Attack/Strength/Defence option, with priority over redundant individual selections. Renew on covered-stat expiry and require all three boosts to confirm one consumed potion.
+- Compact the panel with collapsible Run limits, Food & healing, Potions, and Recovery sections, active-run progress, and no text beneath Start/Stop. Remove repeated explanations and mode labels; retain all settings, shortcuts, movement, sound alerts, and visible errors.
+- Add diary and combined-potion regression coverage plus a localhost browser scenario for target switching, native form submitters, manual verification, cumulative budgets, and reward confirmation. Inspect the live diary/potion markup and validate the parser against a token-sanitized live-page capture; live claim execution remains unverified.
+
 ## 1.9.5 — 2026-10-19
 
 - Extend automatic resume after manual verification to ordinary gathering, Arena, and raids, using the same verification handoff as quests and Slayer.

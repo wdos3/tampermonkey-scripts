@@ -12,6 +12,7 @@ const inventory = [
   { id: 'defense', name: 'Defense Elixir', stat: 'defense', boost: 4, quantity: 10 },
 ];
 const selections = inventory.slice(0, 2).map(({ name, stat }) => ({ name, stat }));
+const superCombat = { id: 'combat', name: 'Super Combat Elixir', stat: 'combat', boost: 8, quantity: 10 };
 const actions = f => f.state.requests.map(request => request.action || 'eat');
 const drinks = f => f.state.requests.filter(request => request.action === 'drink');
 function combat(t, options = {}) {
@@ -26,6 +27,60 @@ test('potion choices default to None and show the owned choices independently pe
   await f.start({ interval: 1, actions: 1 });
   await f.advance(4000);
   assert.deepEqual(actions(f), ['engage', 'swing']);
+});
+
+test('Super Combat Elixir is offered as one combined potion and covers all three melee stats', async t => {
+  const f = combat(t, { potions: [superCombat] });
+  assert.match(f.ui.getElementById('potion-combat').textContent, /Super Combat Elixir \(\+8 Attack\/Strength\/Defence\)/);
+  await f.start({ actions: 1, potions: [{ stat: 'combat', name: superCombat.name }] });
+  await f.advance(4000);
+  assert.deepEqual(actions(f), ['drink', 'engage', 'swing']);
+  assert.deepEqual(f.state.boosts.map(boost => boost.stat), ['attack', 'strength', 'defense']);
+  assert.match(f.ui.getElementById('stats').textContent, /1 potions drunk/);
+});
+
+test('a selected combined potion overrides redundant individual melee choices while maintaining Ranged', async t => {
+  const ranged = { id: 'ranged', name: 'Ranged Elixir', stat: 'ranged', boost: 4, quantity: 10 };
+  const potions = [superCombat, ...inventory, ranged];
+  const f = combat(t, { potions });
+  await f.start({ actions: 1, potions: potions.map(({ stat, name }) => ({ stat, name })) });
+  await f.advance(5000);
+  assert.deepEqual(drinks(f).map(request => request.inv_id), ['combat', 'ranged']);
+  assert.match(f.status(), /Action limit reached/);
+});
+
+test('combined boost rows and separate stat rows both prevent premature combat-potion renewal', async t => {
+  for (const boosts of [[{ stat: 'combat', boost: 8, seconds: 300 }],
+    ['attack', 'strength', 'defense'].map(stat => ({ stat, boost: 8, seconds: 300 }))]) {
+    const f = combat(t, { potions: [superCombat], boosts });
+    await f.start({ actions: 1, potions: [{ stat: 'combat', name: superCombat.name }] });
+    await f.advance(4000);
+    assert.equal(drinks(f).length, 0);
+  }
+});
+
+test('Super Combat renews when a covered stat expires and does not wait for the other two', async t => {
+  const f = combat(t, { potions: [superCombat], miss: true,
+    boosts: ['attack', 'strength', 'defense'].map(stat => ({ stat, boost: 8, seconds: stat === 'attack' ? 1 : 300 })) });
+  await f.start({ actions: 10, potions: [{ stat: 'combat', name: superCombat.name }] });
+  await f.advance(900);
+  assert.equal(drinks(f).length, 0);
+  await f.advance(800);
+  assert.equal(drinks(f).length, 1);
+  await f.advance(2000);
+  assert.equal(drinks(f).length, 1);
+});
+
+test('a combat drink needs all three corresponding boosts before it can confirm', async t => {
+  const f = combat(t, { potions: [superCombat], beforeScript(window) {
+    window.document.addEventListener('dank:swapped', () => {
+      window.document.querySelector('.boost-timer[data-stat="defense"]')?.parentElement.remove();
+    });
+  } });
+  await f.start({ actions: 1, autoRecover: false, potions: [{ stat: 'combat', name: superCombat.name }] });
+  await f.advance(31000);
+  assert.deepEqual(actions(f), ['drink']);
+  assert.match(f.status(), /No confirmed response/);
 });
 
 test('multiple selected stats are drunk sequentially before combat without counting as attacks or food', async t => {

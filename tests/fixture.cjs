@@ -45,7 +45,7 @@ function foodMarkup(foods, selected = '') {
 // the form path/fields and boost-row markup below are synthetic.
 function potionMarkup(potions, boosts = []) {
   const owned = potions.filter(potion => potion.quantity > 0);
-  const label = stat => stat === 'defense' ? 'Defence' : stat[0].toUpperCase() + stat.slice(1);
+  const label = stat => stat === 'combat' ? 'Attack/Strength/Defence' : stat === 'defense' ? 'Defence' : stat[0].toUpperCase() + stat.slice(1);
   return `${owned.length ? `<form class="quick-drink" method="post" action="/drink.php" data-ajax>
     <input type="hidden" name="csrf" value="fixture-drink-token"><input type="hidden" name="action" value="drink">
     <label for="quick-drink-select">Quick drink</label><select id="quick-drink-select" name="inv_id">

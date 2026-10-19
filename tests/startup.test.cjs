@@ -33,7 +33,7 @@ test('navigation pages show the panel without enabling automation', t => {
     const f = startup(t, { path });
     assert.ok(f.host());
     assert.equal(f.host().shadowRoot.getElementById('start').disabled, true);
-    assert.match(f.host().shadowRoot.getElementById('status').textContent, /Open Gathering, Combat, Raids, or Quests/);
+    assert.match(f.host().shadowRoot.getElementById('status').textContent, /Choose an activity above/);
     assert.equal(f.host().shadowRoot.getElementById('actions').value, '9');
   }
   assert.match(source, /^\/\/ @match\s+https:\/\/dankscape\.com\/\*$/m);
