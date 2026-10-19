@@ -367,3 +367,210 @@ test('manual navigation to verification remembers an idle configured activity', 
   const otherTab = fixture(t);
   assert.equal(otherTab.session()[KEY], undefined);
 });
+
+async function verifiedSession(t, original, options = {}) {
+  const mode = savedRun(original).mode;
+  const guard = fixture(t, { session: original.session(), url: `https://dankscape.com/guard.php?from=${mode}`, now: 10000,
+    beforeScript(window) {
+      window.document.querySelector('section.content').innerHTML = `<h1>Quick human check</h1><form method="post" action="/guard.php?from=${mode}"><button>I’m human — Continue</button></form>`;
+    }, ...options });
+  await guard.advance(1000);
+  assert.equal(guard.state.requests.length, 0);
+  assert.equal(guard.state.navigations.length, 0);
+  guard.window.dispatchEvent(new guard.window.Event('pagehide'));
+  return guard;
+}
+
+test('verification automatically restores Shark Waters from Mining with cumulative food and action budgets', async t => {
+  const original = await pausedRun(t, { skill: 'fishing', energy: 2, foods: [shark], guardOnRequest: 3 },
+    { actions: 3, meals: 4, interval: 1, minutes: 10, food: 'Shark' });
+  const guard = await verifiedSession(t, original);
+  assert.equal(savedRun(guard).verification.visited, true);
+  const reset = fixture(t, { session: guard.session(), now: 12000 });
+  await reset.advance(500);
+  assert.deepEqual(reset.state.navigations, ['https://dankscape.com/gather.php?skill=fishing']);
+  assert.equal(reset.state.requests.length, 0);
+  assert.equal(savedRun(reset).completed, 1);
+  assert.equal(savedRun(reset).eaten, 1);
+  assert.equal(savedRun(reset).deadline, 600000);
+  const restored = fixture(t, { skill: 'fishing', energy: 84, foods: [shark], session: reset.session(), now: 13000 });
+  await restored.advance(5000);
+  assert.equal(restored.state.requests.length, 2);
+  assert.ok(restored.state.requests.every(request => request.node === 'shark'));
+  assert.match(restored.ui.getElementById('stats').textContent, /^3 confirmed actions · 1 food eaten/);
+  assert.match(restored.status(), /Action limit reached/);
+});
+
+test('verification automatically restores the Arena area, exact enemy, and selected potion budget', async t => {
+  const potion = { id: 'attack', name: 'Attack elixir', stat: 'attack', boost: 7, quantity: 5 };
+  const original = await pausedRun(t, { mode: 'arena', zone: 'Volcanic Caverns', potions: [potion], guardOnRequest: 2 },
+    { target: 'Other Foe', actions: 1, potions: [{ stat: 'attack', name: potion.name }], drinks: 5 });
+  assert.equal(savedRun(original).drunk, 1);
+  const guard = await verifiedSession(t, original);
+  const returned = fixture(t, { mode: 'arena', hpLoss: 0, enemyHP: 3, session: guard.session(), now: 12000,
+    potions: [potion], boosts: [{ stat: 'attack', boost: 7, seconds: 300 }] });
+  await returned.advance(5000);
+  assert.deepEqual(returned.state.requests.map(request => request.action), ['travel', 'engage', 'swing']);
+  assert.equal(returned.state.requests[0].zone_id, '3');
+  assert.equal(returned.state.requests[1].monster_id, '2');
+  assert.equal(returned.state.arena.zone, 'Volcanic Caverns');
+  assert.match(returned.ui.getElementById('stats').textContent, /1 confirmed actions.*1 wins.*1 potions drunk/);
+  assert.match(returned.status(), /Action limit reached/);
+});
+
+test('verification automatically reopens the exact raid ID and finishes it without another summon', async t => {
+  const original = await pausedRun(t, { mode: 'raid', guardOnRequest: 2, hpLoss: 0 });
+  const guard = await verifiedSession(t, original);
+  const list = fixture(t, { mode: 'raid', raidList: true, url: 'https://dankscape.com/raid.php', session: guard.session(), now: 12000 });
+  await list.advance(500);
+  assert.deepEqual(list.state.navigations, ['https://dankscape.com/raid.php?id=123']);
+  assert.equal(list.state.requests.length, 0);
+  const fight = fixture(t, { mode: 'raid', bossHP: 20, hpLoss: 0, session: list.session(), now: 13000 });
+  await fight.advance(5000);
+  assert.equal(fight.state.requests.length, 2);
+  assert.ok(fight.state.requests.every(request => request.raid_id === '123' && request.action === 'attack'));
+  assert.match(fight.ui.getElementById('stats').textContent, /^3 confirmed actions.*1 raids completed/);
+  assert.match(fight.status(), /Boss defeated/);
+});
+
+for (const mode of ['gather', 'arena', 'raid']) {
+  test(`Stop and Escape cancel ${mode} automatic verification resume`, async t => {
+    for (const cancel of ['stop', 'escape']) {
+      const original = await pausedRun(t, { mode });
+      const guard = await verifiedSession(t, original);
+      if (cancel === 'stop') guard.stop();
+      else guard.document.dispatchEvent(new guard.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const reloaded = fixture(t, { url: `https://dankscape.com/guard.php?from=${mode}`, session: guard.session() });
+      await reloaded.advance(500);
+      const returned = fixture(t, { mode, session: reloaded.session() });
+      await returned.advance(2000);
+      assert.equal(returned.state.requests.length, 0);
+      assert.equal(returned.state.navigations.length, 0);
+      if (cancel === 'escape') assert.equal(savedRun(returned).verification, false);
+    }
+  });
+}
+
+test('an idle configured activity never starts itself after human verification', async t => {
+  for (const mode of ['gather', 'arena', 'raid']) {
+    const idle = fixture(t, { mode, guard: true });
+    await idle.advance(500);
+    assert.equal(savedRun(idle).verification, false);
+    const guard = await verifiedSession(t, idle);
+    const returned = fixture(t, { mode, session: guard.session() });
+    await returned.advance(1000);
+    assert.equal(returned.state.requests.length, 0);
+    assert.equal(returned.state.navigations.length, 0);
+  }
+});
+
+test('unconfirmed activities cannot be automatically retried after a manual guard visit', async t => {
+  const f = fixture(t, { noResponse: true });
+  await f.start();
+  f.showGuard();
+  await f.advance(500);
+  assert.equal(f.state.navigations.length, 0);
+  const guard = await verifiedSession(t, f);
+  const returned = fixture(t, { session: guard.session() });
+  await returned.advance(2000);
+  assert.equal(returned.state.requests.length, 0);
+  assert.equal(returned.state.navigations.length, 0);
+  assert.equal(savedRun(returned).verification, false);
+  assert.equal(savedRun(returned).canResume, false);
+  assert.match(returned.status(), /last action is unconfirmed/);
+});
+
+test('an expired activity deadline or changed hero cannot restart after verification', async t => {
+  for (const mismatch of ['deadline', 'hero', 'return-page']) {
+    const original = await pausedRun(t, { skill: 'fishing' }, { minutes: 1 });
+    const guard = await verifiedSession(t, original);
+    const returned = fixture(t, { skill: 'fishing', session: guard.session(), now: mismatch === 'deadline' ? 61000 : 12000,
+      ...(mismatch === 'return-page' ? { mode: 'arena' } : {}), beforeScript(window) {
+        if (mismatch === 'hero') window.document.querySelector('aside h2').textContent = 'Another hero';
+      } });
+    await returned.advance(1000);
+    assert.equal(returned.state.requests.length, 0);
+    assert.equal(returned.state.navigations.length, 0);
+    if (mismatch !== 'return-page') assert.match(returned.status(), /original time limit expired|active hero changed/);
+  }
+});
+
+test('another tab blocks automatic activity resume without a retry loop', async t => {
+  const guard = await verifiedSession(t, await pausedRun(t));
+  const locks = lockManager();
+  const other = fixture(t, { locks, noResponse: true });
+  await other.start();
+  const returned = fixture(t, { session: guard.session(), locks });
+  await returned.advance(1000);
+  assert.equal(returned.state.requests.length, 0);
+  assert.equal(returned.state.navigations.length, 0);
+  assert.equal(savedRun(returned).verification, false);
+  assert.match(returned.status(), /Another tab/);
+});
+
+test('a confirmed checkpoint predating automatic verification can be adopted on the guard page', async t => {
+  const original = await pausedRun(t, {}, { actions: 1 });
+  const record = savedRun(original);
+  delete record.verification;
+  original.window.sessionStorage.setItem(KEY, JSON.stringify(record));
+  const guard = await verifiedSession(t, original);
+  assert.equal(savedRun(guard).verification.visited, true);
+  const returned = fixture(t, { session: guard.session() });
+  await returned.advance(3000);
+  assert.equal(returned.state.requests.length, 1);
+  assert.match(returned.status(), /Action limit reached/);
+});
+
+test('returning without visiting the challenge cannot automatically restart the activity', async t => {
+  const original = await pausedRun(t);
+  const returned = fixture(t, { session: original.session() });
+  await returned.advance(2000);
+  assert.equal(returned.state.requests.length, 0);
+  assert.equal(returned.state.navigations.length, 0);
+});
+
+test('cached activity pages read the latest counters and cancel automatic restart', async t => {
+  const guard = await verifiedSession(t, await pausedRun(t));
+  const f = fixture(t, { session: guard.session() });
+  const latest = savedRun(f);
+  latest.completed = 4;
+  latest.eaten = 2;
+  f.window.sessionStorage.setItem(KEY, JSON.stringify(latest));
+  f.window.dispatchEvent(new f.window.PageTransitionEvent('pageshow', { persisted: true }));
+  await f.advance(1000);
+  assert.equal(f.state.requests.length, 0);
+  assert.equal(savedRun(f).completed, 4);
+  assert.equal(savedRun(f).eaten, 2);
+  assert.equal(savedRun(f).verification, false);
+  assert.match(f.status(), /cached activity/);
+});
+
+test('repeated human checks keep the same gathering action budget', async t => {
+  const firstGuard = await verifiedSession(t, await pausedRun(t, {}, { actions: 2 }));
+  const second = fixture(t, { session: firstGuard.session(), guardOnRequest: 2 });
+  await second.advance(4000);
+  assert.equal(savedRun(second).completed, 1);
+  assert.equal(savedRun(second).verification.visited, false);
+  const secondGuard = await verifiedSession(t, second);
+  const finished = fixture(t, { session: secondGuard.session() });
+  await finished.advance(4000);
+  assert.equal(finished.state.requests.length, 1);
+  assert.match(finished.ui.getElementById('stats').textContent, /^2 confirmed actions/);
+  assert.match(finished.status(), /Action limit reached/);
+});
+
+test('invalid verification state and failed guard-page storage cannot authorize a resume', async t => {
+  const original = await pausedRun(t);
+  const record = savedRun(original);
+  record.verification = { returnPath: 'https://example.com/gather.php', visited: true };
+  const invalid = fixture(t, { session: { [KEY]: JSON.stringify(record) } });
+  await invalid.advance(1000);
+  assert.equal(invalid.state.requests.length, 0);
+  assert.match(invalid.status(), /Saved activity data is invalid/);
+  const guard = await verifiedSession(t, original, { beforeScript(window) {
+    window.Storage.prototype.setItem = () => { throw new Error('Storage denied'); };
+  } });
+  const returned = fixture(t, { session: guard.session() });
+  await returned.advance(1000);
+  assert.equal(returned.state.requests.length, 0);
+});

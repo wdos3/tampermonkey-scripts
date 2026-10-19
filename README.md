@@ -1,6 +1,6 @@
 # DankScape Assistant
 
-A standalone Tampermonkey userscript for gathering, arena combat, raid/boss attacks, quests, and Slayer, with conservative energy recovery and immediate HP healing. Version **1.9.4** opens human-check notices automatically and resumes saved quest or Slayer runs after you complete verification yourself. All modes share run preferences and support a 0.1-second delay. The file remains `dankscape-gather.user.js`, and the Tampermonkey metadata name remains **DankScape Gathering Assistant** so existing installations keep their identity.
+A standalone Tampermonkey userscript for gathering, arena combat, raid/boss attacks, quests, and Slayer, with conservative energy recovery and immediate HP healing. Version **1.9.5** opens human-check notices automatically and resumes saved runs in every supported mode after you complete verification yourself. All modes share run preferences and support a 0.1-second delay. The file remains `dankscape-gather.user.js`, and the Tampermonkey metadata name remains **DankScape Gathering Assistant** so existing installations keep their identity.
 
 Version 1.2.1 strengthens panel startup and recovery. The panel appears on all DankScape pages; Start is available only on supported activity pages with an eligible target.
 
@@ -23,7 +23,7 @@ The metadata uses GitHub's authenticated `github.com/.../raw/...` route. It cont
 
 For future releases, increase `@version`, the visible `VERSION`, and the package versions together before pushing the updated standalone file to `main`. Tampermonkey compares `@version`; editing the server file without increasing it does not publish a newer version. The [metadata documentation](https://www.tampermonkey.net/documentation.php?locale=en&q=update_url) describes `@updateURL` and `@downloadURL`.
 
-The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, or Slayer. Ordinary page loads start stopped. **Start** begins the current mode; **Stop** or **Esc** stops it. **Alt + Shift + G** toggles Start/Stop. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, quest or Slayer travel, and their saved manual-verification handoff can continue across page loads.
+The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, or Slayer. Ordinary page loads start stopped. **Start** begins the current mode; **Stop** or **Esc** stops it. **Alt + Shift + G** toggles Start/Stop. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, quest or Slayer travel, and saved verification handoffs can continue across page loads.
 
 ## Automatic quests
 
@@ -59,9 +59,9 @@ Drag the header or **⠿** handle. The position is saved across game pages and r
 
 When a visible human-check notice contains the game's same-origin `/guard.php?from=...` link, the script opens it automatically in the current tab, including outside supported activities. It never clicks or submits controls on the guard page. Complete reCAPTCHA and **I'm human — Continue** yourself. An unresolved pending action must settle before the script navigates automatically.
 
-Quest and Slayer runs automatically resume through their own fresh board after the guard page returns to its recorded destination. A previously saved, confirmed queue already on the guard page can use this handoff after updating. Stop or Esc cancels it. Expired limits, changed heroes, another running tab, and unknown request outcomes prevent automatic restart.
+Every supported mode can automatically resume after the guard page returns to its recorded destination. Quest and Slayer runs first check their own fresh board. Gathering, Arena, and raids restore the exact saved activity as described below, including interrupted raid repetition. A previously saved, confirmed run already on the guard page can use this handoff after updating. Stop or Esc cancels it. An idle activity does not start itself after verification. Expired limits, changed heroes, another running tab, storage failures, and unknown request outcomes prevent automatic restart.
 
-For ordinary gathering, Arena, and raids outside a quest or Slayer queue, the script saves the exact activity and retains the existing **Restore & resume** control. Click it after the game returns:
+The script retains **Restore & resume** for manual recovery. During a valid verification handoff, it performs this restoration automatically:
 
 | Saved activity | Restoration |
 | --- | --- |
@@ -85,7 +85,7 @@ Browser autoplay rules can require interaction on a new page, and a muted tab or
 
 ### If the panel is missing
 
-After saving the complete v1.9.4 script, reload DankScape. The header should show **v1.9.4**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
+After saving the complete v1.9.5 script, reload DankScape. The header should show **v1.9.5**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
 
 A startup exception now displays an error panel with **Retry startup** and logs the cause with the prefix `[DankScape Assistant]`. If no panel or **Show DankScape Assistant** menu command exists, check browser injection permissions: the script's enabled toggle alone does not establish that it executed. Tampermonkey documents Chrome's separate **Allow User Scripts** permission in its [official setup FAQ](https://www.tampermonkey.net/faq.php?q=Q209). Browser extension site access must also include DankScape.
 
@@ -101,7 +101,7 @@ The original disappearance was reported across all pages, but the installed exte
 | Quests | Open the Quest Board and set cumulative queue limits. | Accept supported eligible contracts, follow their activity routes, complete objectives, turn in rewards, and continue. |
 | Slayer | Open the Slayer Master and set shared run limits. | Continue or take a task, hunt its exact monster, claim the reward, and repeat. |
 
-The script preserves the game's current equipment, combat style, prayer, and boss selection. Normal runs stay in the selected location; recovery can travel back to the saved arena area after you choose Restore & resume. It does not switch enemies during an active fight, change combat style, buy food or potions, or automate PvP. Raid repetition summons only the selected boss after a confirmed defeat. An unexpected change of boss or raid ID still pauses the run.
+The script preserves the game's current equipment, combat style, prayer, and boss selection. Normal runs stay in the selected location; recovery can travel back to the saved arena area after verification or when you choose Restore & resume. It does not switch enemies during an active fight, change combat style, buy food or potions, or automate PvP. Raid repetition summons only the selected boss after a confirmed defeat. An unexpected change of boss or raid ID still pauses the run.
 
 Arena and raid turns in the inspected session did not consume energy. Gathering reads its energy cost from the selected resource's card. Keep **Keep this much energy** at **0** to retain the original policy of recovering energy only when there is too little for the next action.
 
@@ -115,7 +115,7 @@ The final-hit message uses different wording from ordinary attacks: “You struc
 
 The original action, time, food, potion, and recovery budgets continue across every raid. **Raids completed** counts defeats separately from attacks. Raise Maximum actions, Maximum minutes, and consumable limits enough for the whole chain; reaching an action or time limit prevents another summon. Potions remain active across navigation and are not topped up just because a new raid starts.
 
-Missing or locked summon controls, a changed hero, a different boss, or an unconfirmed summon pauses the chain. The script saves the pending summon before clicking; reloading cannot submit it again. Complete human checks manually, then use Restore & resume where a continuation can be verified. Stop discards the saved continuation and prevents later automatic attacks, although an already sent summon may still finish.
+Missing or locked summon controls, a changed hero, a different boss, or an unconfirmed summon pauses the chain. The script saves the pending summon before clicking; reloading cannot submit it again. Complete human checks manually; a verified saved continuation resumes automatically after the game returns. Restore & resume remains available for other pauses. Stop discards the saved continuation and prevents later automatic attacks, although an already sent summon may still finish.
 
 ## Automatic combat potions
 
@@ -224,6 +224,8 @@ For v1.9.2, syntax validation and all 310 tests pass. New checks reject invalid 
 
 For v1.9.4, syntax validation and all 326 tests pass. The live Arena check was inspected and its initial native link opened `/guard.php?from=arena`; the actual verification button was left untouched. In the localhost browser, a quest paused after its first victory and automatically opened the mock guard page. Completing the mock check returned to a default area, then the queue checked its board, travelled back to the correct area, finished and claimed the quest without a Resume click. The run retained three confirmed attacks, three healing meals, two potion buffs, and its original three-action/one-quest cap. These are fixture results; installed Tampermonkey execution and completion of the live reCAPTCHA remain unverified.
 
+For v1.9.5, syntax validation and all 342 tests pass. Three ordinary activity runs were interrupted by localhost mock checks. After manual mock completion, gathering automatically restored Shark Waters from Mining and stopped at two actions; Arena automatically restored Volcanic Caverns and Other Foe, then stopped after three attacks, two meals, and one victory; raids reopened ID 123, defeated it, summoned ID 124 once, and stopped after six attacks, six meals, and two completed raids. No Resume button was used and all three browser logs were free of warnings/errors. Regression tests also cover an interrupted repeat-raid catalogue handoff, cumulative potions, repeated checks, cached pages, cancellation, unknown requests, deadlines, identity, and shared locks. These are local fixture results; live Tampermonkey execution remains unverified.
+
 The installed script has no external JavaScript dependencies. npm is only needed for development:
 
 ```powershell
@@ -242,7 +244,7 @@ Open the printed local URL. The server chooses an available port automatically; 
 
 The fixture also includes a navigation page and controls to hide, show, or remove the panel. Add `?trustedtypes=1` to the gathering fixture URL to check startup under enforced Trusted Types. This restriction is a startup check only: the fake game's response renderer still uses HTML strings, so use the ordinary fixture URL for action tests.
 
-Choose **Mock verification required** before Start to interrupt the next request. The assistant opens the mock check automatically; use its **Complete mock check** link, then choose **Restore & resume** after the default page reset. This exercises ordinary activity recovery without submitting any real human verification.
+Choose **Mock verification required** before Start to interrupt the next request. The assistant opens the mock check automatically; use its **Complete mock check** link. After the default page reset, the saved activity restores and resumes automatically without a Resume click. Gathering returns to the original skill/resource, Arena uses its native travel control when the area changes, and raids reopen the exact raid ID or continue their saved repeat transition. This never submits real human verification.
 
 Choose **Unrelated refresh before response** to test a content replacement before confirmation. **Miss + unrelated refresh** also makes Arena and raid attacks miss, while the hero loses one HP and can heal normally. Use a small action limit to finish the fixture run.
 

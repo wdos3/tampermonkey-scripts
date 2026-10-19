@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.5 — 2026-10-19
+
+- Extend automatic resume after manual verification to ordinary gathering, Arena, and raids, using the same verification handoff as quests and Slayer.
+- Reuse exact-activity restoration for resource/skill, area/enemy, raid ID, and interrupted repeat-raid transitions. Retain cumulative actions, wins, food, potions, raids, delays, recovery counts, and deadlines.
+- Keep idle activities stopped. Stop/Escape and checkpoint removal cancel the handoff; unknown actions, expired limits, changed heroes, storage failures, and another active tab cannot authorize a restart. Read current counters when returning to cached activity pages and leave those pages paused.
+- Add 16 regression tests for automatic restoration across the remaining modes, repeated checks, raid chaining, cancellation, saved data, and original budgets. Preserve manual reCAPTCHA controls and the private-repository update URLs.
+
 ## 1.9.4 — 2026-10-19
 
 - Automatically open visible, same-origin human-check links across game pages, including notices found during read-only progress checks. Wait for pending actions to settle and leave all guard-page and reCAPTCHA controls manual.

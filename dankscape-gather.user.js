@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.9.4
+// @version      1.9.5
 // @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @description  Gathering, combat, bosses, and quest queues with food, limits, recovery, and manual verification handoff.
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.9.4';
+  const VERSION = '1.9.5';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -515,6 +515,11 @@
       return /^[a-z][a-z0-9_-]{0,49}$/.test(from) ? `/${from}.php` : null;
     }
 
+    function validVerificationIntent(value) {
+      return value === undefined || value === false || Boolean(value && typeof value.visited === 'boolean'
+        && /^\/[a-z][a-z0-9_-]{0,49}\.php$/.test(value.returnPath));
+    }
+
     function scheduleVerification() {
       if (verificationTimer !== null) return;
       // Let the native response handler count or reject the pending action first.
@@ -524,20 +529,23 @@
     function handleVerification() {
       if (!document?.documentElement) return;
       const guard = humanCheck();
+      const saved = questQueue || checkpoint;
+      const save = questQueue ? saveQuestQueue : writeCheckpoint;
       if (location.pathname === '/guard.php') {
-        const intent = questQueue?.verification;
+        const intent = saved?.verification;
         const returnPath = verificationReturnPath();
-        if (!questQueue || questError || intent === false || !returnPath) return;
-        // Adopt a pre-update saved queue already waiting at the challenge, but
-        // never an uncertain action or a queue explicitly stopped by this version.
-        if (!intent && (questQueue.uncertain || questQueue.command || Date.now() >= questQueue.deadline)) return;
-        if (intent && intent.returnPath !== returnPath) return stop('The verification return page changed. Inspect the saved quest before resuming.');
+        if (!saved || questError || checkpointError || intent === false || !returnPath) return;
+        // Adopt confirmed pre-update runs already waiting at the challenge.
+        // Explicitly stopped runs and uncertain actions cannot authorize restart.
+        const uncertain = questQueue ? questQueue.uncertain || questQueue.command : !checkpoint.canResume;
+        if (!intent && (uncertain || Date.now() >= saved.deadline)) return;
+        if (intent && intent.returnPath !== returnPath) return stop('The verification return page changed. Inspect the saved run before resuming.');
         if (!intent || !intent.visited) {
-          questQueue.verification = { returnPath, visited: true };
-          if (!saveQuestQueue()) return stop(questError);
+          saved.verification = { returnPath, visited: true };
+          if (!save()) return stop(questError || checkpointError);
         }
-        status(questQueue.uncertain ? 'Complete verification yourself. The unconfirmed task action still needs inspection before resuming.'
-          : 'Complete the game’s verification yourself. The saved task will resume after the game returns.');
+        status(uncertain ? 'Complete verification yourself. The unconfirmed action still needs inspection before resuming.'
+          : 'Complete the game’s verification yourself. The saved run will resume after the game returns.');
         return;
       }
       if (guard.required) {
@@ -553,14 +561,17 @@
         ui['verify-link'].click();
         return;
       }
-      const intent = questQueue?.verification;
+      const intent = saved?.verification;
       if (!intent || !intent.visited || intent.returnPath !== location.pathname
         || starting || run?.active || pending || ownNavigation || questError || checkpointError) return;
       // Consume the handoff before acquiring the lock or travelling. A failed
       // resume must not become an automatic retry on every DOM update.
-      questQueue.verification = false;
-      if (!saveQuestQueue()) return stop(questError);
-      void startQuestQueue(true);
+      saved.verification = false;
+      if (!save()) return stop(questError || checkpointError);
+      if (questQueue) return void startQuestQueue(true);
+      if (!checkpoint.canResume) return status('The saved activity’s last action is unconfirmed. Inspect its result before resuming.');
+      if (Date.now() >= checkpoint.deadline) return status('The saved activity’s original time limit expired. Restore it or discard it before starting a new run.');
+      void restoreSavedRun();
     }
 
     function characterName(page = document) {
@@ -604,7 +615,7 @@
 
     function validCheckpoint(value) {
       if (!value || value.version !== 1 || !['gather', 'arena', 'raid'].includes(value.mode)
-        || !validRunConfig(value.config) || !validRunProgress(value)) return false;
+        || !validRunConfig(value.config) || !validRunProgress(value) || !validVerificationIntent(value.verification)) return false;
       if (value.raidPhase !== undefined && (value.mode !== 'raid' || !['catalog', 'summon'].includes(value.raidPhase))) return false;
       if (!Number.isSafeInteger(value.steps) || value.steps < 0 || value.steps > 1000000
         || !['canResume', 'restoreRequested'].every(key => typeof value[key] === 'boolean')) return false;
@@ -643,6 +654,7 @@
       const previous = checkpoint;
       if (previous) {
         previous.restoreRequested = false;
+        previous.verification = false;
         writeCheckpoint();
       }
       checkpoint = null;
@@ -668,7 +680,7 @@
         targetName: selected?.name || config.target, character: characterName(), zone: mode === 'arena' ? arenaZone() : '',
         raidId: run?.raidId || raidState()?.id || '', raidsCompleted: run?.raidsCompleted || 0,
         deadline: run?.deadline ?? Date.now() + config.minutes * 60000, finishReason: run?.finishReason || '',
-        canResume: !pending, restoreRequested: false, steps: 0 };
+        canResume: !pending, restoreRequested: false, verification: false, steps: 0 };
       if (!validCheckpoint(checkpoint)) {
         checkpoint = null;
         checkpointError = 'Could not identify the exact activity. Return to it manually after verification.';
@@ -687,13 +699,23 @@
         scheduleVerification();
         return;
       }
+      const intent = checkpoint?.verification;
+      const resumeAfterCheck = run?.active || restoring || checkpoint?.restoreRequested;
       if (checkpoint?.restoreRequested) {
         checkpoint.restoreRequested = false;
         if (pending) checkpoint.canResume = false;
         writeCheckpoint();
-      } else if (run || !checkpoint) rememberActivity();
+      } else if (run && checkpoint) {
+        Object.assign(checkpoint, runProgress(run), { canResume: !pending });
+        writeCheckpoint();
+      } else if (!checkpoint) rememberActivity();
+      const returnPath = verificationReturnPath();
+      if (checkpoint && returnPath) {
+        checkpoint.verification = intent || (resumeAfterCheck ? { returnPath, visited: location.pathname === '/guard.php' } : false);
+        writeCheckpoint();
+      }
       restoring = false;
-      stop(checkpointError || 'Human verification required. Complete the game’s check yourself, then use Restore & resume.');
+      stop(checkpointError || 'Human verification required. Complete the game’s check yourself; the saved activity will be checked for automatic resume after returning.', { preserveVerification: true });
       scheduleVerification();
     }
 
@@ -1003,9 +1025,7 @@
       if (!validRunConfig(value.config) || !validRunProgress(value) || !Number.isSafeInteger(value.recoveries)
         || !Number.isSafeInteger(value.config.quests)) return false;
       if (value.source !== undefined && value.source !== 'slayer') return false;
-      if (value.verification !== undefined && value.verification !== false && (!value.verification
-        || typeof value.verification.visited !== 'boolean'
-        || !/^\/[a-z][a-z0-9_-]{0,49}\.php$/.test(value.verification.returnPath))) return false;
+      if (!validVerificationIntent(value.verification)) return false;
       if (value.source === 'slayer') {
         if (!Number.isSafeInteger(value.tasksCompleted) || value.tasksCompleted < 0 || value.tasksCompleted > 1000000) return false;
         if (value.command && (!['assign', 'claim'].includes(value.command.kind) || !Number.isSafeInteger(value.command.before)
@@ -1613,9 +1633,10 @@
       generation += 1;
       starting = false;
       if (run) run.active = false;
-      if (checkpoint?.restoreRequested) {
+      if (checkpoint) {
         checkpoint.restoreRequested = false;
-        writeCheckpoint();
+        if (!preserveVerification) checkpoint.verification = false;
+        if (!writeCheckpoint()) reason = `${reason} ${checkpointError}`;
       }
       restoring = false;
       ownNavigation = false;
@@ -2460,7 +2481,7 @@
       } else if (!ownNavigation && (run?.active || starting || restoring) && link) stop('Stopped for navigation.');
     }, true);
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && (run?.active || starting || restoring || potionRead || questQueue?.verification)) {
+      if (event.key === 'Escape' && (run?.active || starting || restoring || potionRead || (questQueue || checkpoint)?.verification)) {
         event.preventDefault();
         stop();
       } else if (!event.repeat && event.altKey && event.shiftKey && event.code === 'KeyG') {
@@ -2479,7 +2500,7 @@
       potionRead?.abort();
       potionRead = null;
       checkSounds.dispose();
-      if (ownNavigation || (location.pathname === '/guard.php' && questQueue?.verification?.visited)) {
+      if (ownNavigation || (location.pathname === '/guard.php' && (questQueue || checkpoint)?.verification?.visited)) {
         if (run) run.active = false;
         clearTimeout(timer);
         return;
@@ -2490,20 +2511,24 @@
       responseObserver?.observe({ type: 'resource', buffered: true });
       checkSounds.reactivate();
       checkSounds.update(humanCheck().required);
-      if (event.persisted && questQueue && !pending) {
+      if (event.persisted && (questQueue || checkpoint) && !pending) {
         // Back/forward restores an old JS heap. Read current counters before
-        // exposing Resume; the cached page must not reset the queue's budget.
+        // exposing Resume; the cached page must not reset the run's budget.
         clearTimeout(timer);
         questNavigationDeadline = 0;
         ownNavigation = false;
+        openingVerification = false;
         run = null;
         unlockIfIdle();
         try {
+          checkpoint = readCheckpoint();
+          if (checkpoint) { checkpoint.restoreRequested = false; checkpoint.verification = false; writeCheckpoint(); }
           questQueue = readQuestQueue();
           if (questQueue) { questQueue.active = false; questQueue.continuation = null; saveQuestQueue(); }
           staleSlayerBoard = mode === 'slayer' && questQueue?.source === 'slayer';
         } catch (error) { questError = `Could not restore the quest queue: ${error.message}`; }
-        status(questError || (staleSlayerBoard ? 'Returned to a cached Slayer board. Resume Slayer reloads fresh task controls before continuing.'
+        status(questError || checkpointError || (checkpoint ? 'Returned to a cached activity. Inspect the page before using Restore & resume.'
+          : staleSlayerBoard ? 'Returned to a cached Slayer board. Resume Slayer reloads fresh task controls before continuing.'
           : 'Returned to a previous page. Use Resume quests to check fresh progress, or discard the queue.'));
       }
       scheduleVerification();

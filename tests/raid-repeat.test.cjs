@@ -176,6 +176,30 @@ test('a human check on the catalogue pauses and manual resume summons only the s
   assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=raid', 'https://dankscape.com/raid.php?id=124']);
 });
 
+test('manual verification automatically resumes a repeat-raid catalogue handoff without resetting its budget', async t => {
+  const first = await defeated(t);
+  const lobby = catalog(t, await leave(first), { guard: true });
+  await lobby.advance(500);
+  assert.equal(record(lobby).raidPhase, 'catalog');
+  assert.equal(record(lobby).raidsCompleted, 1);
+  assert.equal(record(lobby).verification.visited, false);
+  const guard = fixture(t, { url: 'https://dankscape.com/guard.php?from=raid', now: 4000, session: await leave(lobby) });
+  await guard.advance(500);
+  assert.equal(guard.state.requests.length, 0);
+  const returned = catalog(t, await leave(guard), { now: 5000 });
+  await returned.advance(500);
+  assert.deepEqual(actions(returned), ['summon']);
+  assert.equal(returned.state.requests[0].boss, 'fixture-boss');
+  assert.equal(record(returned).raidsCompleted, 1);
+  assert.equal(record(returned).config.maxRaids, 2);
+  const battle = fixture(t, { mode: 'raid', raidId: '124', bossHP: 10, hpLoss: 0,
+    url: 'https://dankscape.com/raid.php?id=124', now: 6000, session: await leave(returned) });
+  await battle.advance(3000);
+  assert.deepEqual(actions(battle), ['attack']);
+  assert.match(battle.ui.getElementById('stats').textContent, /^2 confirmed actions.*2 raids completed/);
+  assert.match(battle.status(), /Raid limit reached/);
+});
+
 test('a changed hero cannot summon the next raid', async t => {
   const first = await defeated(t);
   const f = catalog(t, await leave(first), { beforeScript(window) {
