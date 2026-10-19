@@ -228,7 +228,7 @@ function fixture(t, options = {}) {
   window.eval(source);
   const ui = document.getElementById('dankscape-gather-assistant').shadowRoot;
   ui.addEventListener('click', event => {
-    if (['return-activity', 'quest-navigation'].includes(event.target.id)) {
+    if (['return-activity', 'quest-navigation', 'verify-link'].includes(event.target.id)) {
       event.preventDefault();
       state.navigations.push(event.target.href);
     }

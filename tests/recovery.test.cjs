@@ -21,6 +21,7 @@ for (const mode of ['gather', 'arena', 'raid']) {
     const f = await pausedRun(t, { mode });
     assert.equal(f.state.requests.length, 1);
     assert.equal(f.state.verificationClicks, 0);
+    assert.deepEqual(f.state.navigations, [`https://dankscape.com/guard.php?from=${mode}`]);
     assert.equal(savedRun(f).completed, 0);
     assert.equal(savedRun(f).canResume, true);
     assert.equal(f.ui.getElementById('resume').disabled, true);
@@ -29,6 +30,39 @@ for (const mode of ['gather', 'arena', 'raid']) {
     assert.match(f.status(), /Complete the game’s check yourself/);
   });
 }
+
+test('initial human-check links open once on every activity and on otherwise unsupported pages', async t => {
+  for (const path of ['gather', 'arena', 'raid', 'quests', 'slayer', 'workshop']) {
+    const f = fixture(t, { url: `https://dankscape.com/${path}.php`, beforeScript(window) {
+      window.document.querySelector('section.content').insertAdjacentHTML('afterbegin',
+        `<a href="/guard.php?from=${path}">Verify I’m human</a>`);
+    } });
+    await f.advance(120000);
+    assert.deepEqual(f.state.navigations, [`https://dankscape.com/guard.php?from=${path}`]);
+    assert.equal(f.state.requests.length, 0);
+  }
+});
+
+test('external and hidden verification links never open automatically', async t => {
+  for (const markup of ['<a href="https://example.com/guard.php?from=arena">Verify I’m human</a>',
+    '<div hidden><a href="/guard.php?from=arena">Verify I’m human</a></div>']) {
+    const f = fixture(t, { beforeScript(window) { window.document.querySelector('section.content').insertAdjacentHTML('afterbegin', markup); } });
+    await f.advance(1000);
+    assert.equal(f.state.navigations.length, 0);
+    assert.equal(f.state.requests.length, 0);
+  }
+});
+
+test('replacing the body with a human-check prompt also opens its guard link', async t => {
+  const f = fixture(t);
+  await f.advance(1);
+  const replacement = f.document.body.cloneNode(true);
+  replacement.querySelector('section.content').innerHTML = '<a href="/guard.php?from=gather">Verify I’m human</a>';
+  f.document.body.replaceWith(replacement);
+  await f.advance(1000);
+  assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=gather']);
+  assert.equal(f.state.requests.length, 0);
+});
 
 test('manual verification recovery returns Mining to Shark Waters and retains counts, food, and limits', async t => {
   const original = await pausedRun(t, { skill: 'fishing', energy: 2, foods: [shark], guardOnRequest: 3 },

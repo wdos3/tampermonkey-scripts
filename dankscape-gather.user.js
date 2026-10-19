@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.9.3
+// @version      1.9.4
 // @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @description  Gathering, combat, bosses, and quest queues with food, limits, recovery, and manual verification handoff.
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.9.3';
+  const VERSION = '1.9.4';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -315,6 +315,8 @@
     let potionRead = null;
     let slayerHero = '';
     let staleSlayerBoard = false;
+    let verificationTimer = null;
+    let openingVerification = false;
     let message = 'Ready. Choose a target and press Start.';
 
     const host = document.createElement('div');
@@ -506,6 +508,61 @@
         .find(node => guardURL(node) && (page !== document || isShown(node)));
     }
 
+    function verificationReturnPath() {
+      const link = humanCheck().link;
+      const url = location.pathname === '/guard.php' ? new URL(location.href) : link && guardURL(link);
+      const from = url?.searchParams.get('from') || '';
+      return /^[a-z][a-z0-9_-]{0,49}$/.test(from) ? `/${from}.php` : null;
+    }
+
+    function scheduleVerification() {
+      if (verificationTimer !== null) return;
+      // Let the native response handler count or reject the pending action first.
+      verificationTimer = setTimeout(() => { verificationTimer = null; handleVerification(); }, 0);
+    }
+
+    function handleVerification() {
+      if (!document?.documentElement) return;
+      const guard = humanCheck();
+      if (location.pathname === '/guard.php') {
+        const intent = questQueue?.verification;
+        const returnPath = verificationReturnPath();
+        if (!questQueue || questError || intent === false || !returnPath) return;
+        // Adopt a pre-update saved queue already waiting at the challenge, but
+        // never an uncertain action or a queue explicitly stopped by this version.
+        if (!intent && (questQueue.uncertain || questQueue.command || Date.now() >= questQueue.deadline)) return;
+        if (intent && intent.returnPath !== returnPath) return stop('The verification return page changed. Inspect the saved quest before resuming.');
+        if (!intent || !intent.visited) {
+          questQueue.verification = { returnPath, visited: true };
+          if (!saveQuestQueue()) return stop(questError);
+        }
+        status(questQueue.uncertain ? 'Complete verification yourself. The unconfirmed task action still needs inspection before resuming.'
+          : 'Complete the game’s verification yourself. The saved task will resume after the game returns.');
+        return;
+      }
+      if (guard.required) {
+        if (openingVerification || ownNavigation || pending || questError || checkpointError || !guard.link) return;
+        const url = guardURL(guard.link);
+        if (!url) return;
+        pauseForVerification();
+        if (questError || checkpointError) return;
+        openingVerification = true;
+        ownNavigation = true;
+        ui['verify-link'].href = url.href;
+        ui['verify-link'].target = '_self';
+        ui['verify-link'].click();
+        return;
+      }
+      const intent = questQueue?.verification;
+      if (!intent || !intent.visited || intent.returnPath !== location.pathname
+        || starting || run?.active || pending || ownNavigation || questError || checkpointError) return;
+      // Consume the handoff before acquiring the lock or travelling. A failed
+      // resume must not become an automatic retry on every DOM update.
+      questQueue.verification = false;
+      if (!saveQuestQueue()) return stop(questError);
+      void startQuestQueue(true);
+    }
+
     function characterName(page = document) {
       return page.querySelector('aside.sidebar h2')?.textContent.trim()
         || (page.querySelector('section.content h1')?.textContent.trim() === 'Quest Board'
@@ -602,7 +659,7 @@
     }
 
     function rememberActivity() {
-      if (mode === 'hall') return false;
+      if (!['gather', 'arena', 'raid'].includes(mode)) return false;
       const config = run?.config || settingsFromUI();
       if (!config || !config.target) return false;
       const selected = targets().find(target => target.key === config.target);
@@ -621,7 +678,15 @@
     }
 
     function pauseForVerification() {
-      if (questQueue) return stop(`Human verification required. Complete the game’s check yourself, then use ${questQueue.source === 'slayer' ? 'Resume Slayer' : 'Resume quests'}.`);
+      if (questQueue) {
+        const returnPath = verificationReturnPath();
+        if (questQueue.active && returnPath && !questQueue.verification) {
+          questQueue.verification = { returnPath, visited: location.pathname === '/guard.php' };
+        }
+        stop('Human verification required. Complete the game’s check yourself; the saved task will be checked for automatic resume after returning.', { preserveVerification: true });
+        scheduleVerification();
+        return;
+      }
       if (checkpoint?.restoreRequested) {
         checkpoint.restoreRequested = false;
         if (pending) checkpoint.canResume = false;
@@ -629,6 +694,7 @@
       } else if (run || !checkpoint) rememberActivity();
       restoring = false;
       stop(checkpointError || 'Human verification required. Complete the game’s check yourself, then use Restore & resume.');
+      scheduleVerification();
     }
 
     function numberFrom(text) {
@@ -937,6 +1003,9 @@
       if (!validRunConfig(value.config) || !validRunProgress(value) || !Number.isSafeInteger(value.recoveries)
         || !Number.isSafeInteger(value.config.quests)) return false;
       if (value.source !== undefined && value.source !== 'slayer') return false;
+      if (value.verification !== undefined && value.verification !== false && (!value.verification
+        || typeof value.verification.visited !== 'boolean'
+        || !/^\/[a-z][a-z0-9_-]{0,49}\.php$/.test(value.verification.returnPath))) return false;
       if (value.source === 'slayer') {
         if (!Number.isSafeInteger(value.tasksCompleted) || value.tasksCompleted < 0 || value.tasksCompleted > 1000000) return false;
         if (value.command && (!['assign', 'claim'].includes(value.command.kind) || !Number.isSafeInteger(value.command.before)
@@ -1524,7 +1593,9 @@
       release();
     }
 
-    function stop(reason = 'Stopped.') {
+    function stop(reason = 'Stopped.', { preserveVerification = false } = {}) {
+      clearTimeout(verificationTimer);
+      verificationTimer = null;
       cancelResponseRecovery();
       if (potionRead) ui['potion-info'].textContent = 'Loading potion choices cancelled.';
       potionRead?.abort();
@@ -1536,6 +1607,7 @@
         syncQuestQueue();
         questQueue.active = false;
         questQueue.continuation = null;
+        if (!preserveVerification) questQueue.verification = false;
         if (!saveQuestQueue()) reason = `${reason} ${questError}`;
       }
       generation += 1;
@@ -2190,6 +2262,7 @@
     }
 
     function onSwapped() {
+      scheduleVerification();
       refreshTargets(run?.active ? run.config.target : ui.target.value);
       refreshFood(run?.active ? run.config.food : ui.food.value);
       refreshPotions(run?.active ? run.config.potions || [] : selectedPotions());
@@ -2378,12 +2451,16 @@
       if (event.isTrusted && !event.composedPath().some(node => node === ui.testSound || node === ui.alertSound)) void checkSounds.arm();
       const link = event.target.closest?.('a[href]');
       if (link && guardURL(link)) {
-        if (!questQueue && !checkpoint && !['hall', 'quest'].includes(mode)) rememberActivity();
-        pauseForVerification();
+        if (!openingVerification) {
+          if (!questQueue && !checkpoint && !['hall', 'quest'].includes(mode)) rememberActivity();
+          pauseForVerification();
+        }
+        openingVerification = true;
+        ownNavigation = true;
       } else if (!ownNavigation && (run?.active || starting || restoring) && link) stop('Stopped for navigation.');
     }, true);
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && (run?.active || starting || restoring || potionRead)) {
+      if (event.key === 'Escape' && (run?.active || starting || restoring || potionRead || questQueue?.verification)) {
         event.preventDefault();
         stop();
       } else if (!event.repeat && event.altKey && event.shiftKey && event.code === 'KeyG') {
@@ -2395,12 +2472,14 @@
     });
     window.addEventListener('offline', () => stop('Connection is offline.'));
     window.addEventListener('pagehide', () => {
+      clearTimeout(verificationTimer);
+      verificationTimer = null;
       responseObserver?.disconnect();
       cancelResponseRecovery();
       potionRead?.abort();
       potionRead = null;
       checkSounds.dispose();
-      if (ownNavigation) {
+      if (ownNavigation || (location.pathname === '/guard.php' && questQueue?.verification?.visited)) {
         if (run) run.active = false;
         clearTimeout(timer);
         return;
@@ -2427,6 +2506,7 @@
         status(questError || (staleSlayerBoard ? 'Returned to a cached Slayer board. Resume Slayer reloads fresh task controls before continuing.'
           : 'Returned to a previous page. Use Resume quests to check fresh progress, or discard the queue.'));
       }
+      scheduleVerification();
     });
     window.addEventListener('focus', () => {
       if (starting || run?.active || pending || restoring || checkpoint || questQueue || potionRead) return;
@@ -2481,16 +2561,19 @@
         observedBody = document.body;
         guardObserver.observe(observedBody, guardObservation);
         render();
+        scheduleVerification();
       }
     });
     observer.observe(document.documentElement, { childList: true });
     const guardObserver = new MutationObserver(() => {
       if ((run?.active || restoring) && humanCheck().required) pauseForVerification();
       else if (document?.documentElement) render();
+      scheduleVerification();
     });
     const guardObservation = { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class', 'href'] };
     let observedBody = document.body;
     guardObserver.observe(observedBody, guardObservation);
+    scheduleVerification();
     if (!questError && checkpoint?.restoreRequested) Promise.resolve().then(restoreSavedRun);
     else if (!questError && questQueue?.active && questQueue.continuation) Promise.resolve().then(continueQuestQueue);
     return restore;

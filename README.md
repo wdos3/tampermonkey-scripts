@@ -1,6 +1,6 @@
 # DankScape Assistant
 
-A standalone Tampermonkey userscript for gathering, arena combat, raid/boss attacks, quests, and Slayer, with conservative energy recovery and immediate HP healing. Version **1.9.3** adds Tampermonkey update metadata for this private GitHub repository. All modes share run preferences and support a 0.1-second delay. The file remains `dankscape-gather.user.js`, and the Tampermonkey metadata name remains **DankScape Gathering Assistant** so existing installations keep their identity.
+A standalone Tampermonkey userscript for gathering, arena combat, raid/boss attacks, quests, and Slayer, with conservative energy recovery and immediate HP healing. Version **1.9.4** opens human-check notices automatically and resumes saved quest or Slayer runs after you complete verification yourself. All modes share run preferences and support a 0.1-second delay. The file remains `dankscape-gather.user.js`, and the Tampermonkey metadata name remains **DankScape Gathering Assistant** so existing installations keep their identity.
 
 Version 1.2.1 strengthens panel startup and recovery. The panel appears on all DankScape pages; Start is available only on supported activity pages with an eligible target.
 
@@ -12,7 +12,7 @@ For a first installation, install [Tampermonkey](https://www.tampermonkey.net/),
 
 ### Automatic updates from the private repository
 
-Install **v1.9.3 once** to add the update metadata to your existing installation. You can paste the complete file as above, or open [the stable GitHub Raw link](https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js) while signed into GitHub and accept Tampermonkey's update of the existing script. Its name and namespace stay the same, preserving the script's identity and settings.
+Install **v1.9.3 or later once** to add the update metadata to your existing installation. You can paste the complete file as above, or open [the stable GitHub Raw link](https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js) while signed into GitHub and accept Tampermonkey's update of the existing script. Its name and namespace stay the same, preserving the script's identity and settings.
 
 1. Stay signed into a GitHub account with access to this repository in the **same browser profile** that runs Tampermonkey. The stable Raw link must open the userscript rather than a sign-in or 404 page.
 2. In the script's Tampermonkey **Settings → Updates**, enable **Check for updates**. If an old per-script URL override exists, set both **Update URL** and **Download URL** to the stable link above.
@@ -23,7 +23,7 @@ The metadata uses GitHub's authenticated `github.com/.../raw/...` route. It cont
 
 For future releases, increase `@version`, the visible `VERSION`, and the package versions together before pushing the updated standalone file to `main`. Tampermonkey compares `@version`; editing the server file without increasing it does not publish a newer version. The [metadata documentation](https://www.tampermonkey.net/documentation.php?locale=en&q=update_url) describes `@updateURL` and `@downloadURL`.
 
-The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, or Slayer. Ordinary page loads start stopped. **Start** begins the current mode; **Stop** or **Esc** stops it. **Alt + Shift + G** toggles Start/Stop. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, and a quest or Slayer run's own travel can continue across page loads.
+The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, or Slayer. Ordinary page loads start stopped. **Start** begins the current mode; **Stop** or **Esc** stops it. **Alt + Shift + G** toggles Start/Stop. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, quest or Slayer travel, and their saved manual-verification handoff can continue across page loads.
 
 ## Automatic quests
 
@@ -41,7 +41,7 @@ When a gathering result does not identify its quantity or quest count, a read-on
 
 The **Maximum actions**, **Maximum arena wins**, food budget, recovery-refresh cap, and original time deadline apply to the entire queue. They do not reset for each quest or page. **Maximum quests** defaults to 20. A completed objective may still be turned in at the action/win limit, but another activity will not start. HP healing and energy eating keep their existing behavior.
 
-Human checks pause the queue and retain the selected objective. Complete verification yourself, then click **Resume quests**. It returns to the board to read fresh progress before continuing. Esc pauses the saved queue; **Stop** or **Discard quest queue** clears it. A manual reload does not resume automatically. An unknown pending request disables resuming until you inspect its result and discard the queue; it is never resent automatically. Quest sessions are stored only in the current tab and contain no form or verification tokens.
+Human checks pause the queue and retain the selected objective. The script opens the game's verification page automatically; complete reCAPTCHA and **I'm human — Continue** yourself. After the game returns in the same tab, the saved queue automatically checks its board for fresh progress and follows the exact objective's route. Its original limits, counts, food and potion choices remain in force. Esc cancels this automatic resume and pauses the saved queue; **Stop** or **Discard quest queue** clears it. Ordinary reloads without a verification handoff stay paused. An unknown pending request disables resuming until you inspect its result and discard the queue; it is never resent automatically. Quest sessions are stored only in the current tab and contain no form or verification tokens.
 
 ## Automatic Slayer
 
@@ -49,7 +49,7 @@ Open **Slayer** and press **Start**. The Assistant continues an existing task, o
 
 There is no Slayer task-count cap; **Maximum quests** applies only to ordinary quests. Shared action, arena-win, time, food, potion, and recovery limits remain cumulative across every Slayer task. Raise these limits for longer runs. Reaching an action or win limit still permits claiming an earned reward, then stops before another assignment. The original time deadline also includes travel and manual verification. The script does not skip tasks or pay the skip fee.
 
-Slayer uses the existing combat healing, potion maintenance, response confirmation, cross-tab lock, and bounded recovery. Its page has no hero sidebar, so each board continuation first reads Arena to identify the living active hero. Native full-page assignment and claim requests are saved before submission; an unknown result is never automatically submitted again. A fresh board must prove the result. **Resume Slayer** continues a paused run, while **Stop** or **Discard Slayer run** clears it. Human checks remain manual. Returning with Back/Forward pauses the run; Resume reloads fresh Slayer controls before continuing.
+Slayer uses the existing combat healing, potion maintenance, response confirmation, cross-tab lock, and bounded recovery. Its page has no hero sidebar, so each board continuation first reads Arena to identify the living active hero. Native full-page assignment and claim requests are saved before submission; an unknown result is never automatically submitted again. A fresh board must prove the result. **Resume Slayer** continues a paused run, while **Stop** or **Discard Slayer run** clears it. Manual verification resumes through the Slayer board automatically, just like ordinary quests. Returning with Back/Forward pauses the run; Resume reloads fresh Slayer controls before continuing.
 
 ## Moving the Assistant
 
@@ -57,7 +57,11 @@ Drag the header or **⠿** handle. The position is saved across game pages and r
 
 ## Recovering after a human check
 
-When a human check interrupts an active run, the script pauses and saves its exact activity in the current tab. The verification controls remain manual: click the game's **Verify I'm human** and **I'm human — Continue** buttons yourself. After the game returns, click **Restore & resume** in the assistant.
+When a visible human-check notice contains the game's same-origin `/guard.php?from=...` link, the script opens it automatically in the current tab, including outside supported activities. It never clicks or submits controls on the guard page. Complete reCAPTCHA and **I'm human — Continue** yourself. An unresolved pending action must settle before the script navigates automatically.
+
+Quest and Slayer runs automatically resume through their own fresh board after the guard page returns to its recorded destination. A previously saved, confirmed queue already on the guard page can use this handoff after updating. Stop or Esc cancels it. Expired limits, changed heroes, another running tab, and unknown request outcomes prevent automatic restart.
+
+For ordinary gathering, Arena, and raids outside a quest or Slayer queue, the script saves the exact activity and retains the existing **Restore & resume** control. Click it after the game returns:
 
 | Saved activity | Restoration |
 | --- | --- |
@@ -81,7 +85,7 @@ Browser autoplay rules can require interaction on a new page, and a muted tab or
 
 ### If the panel is missing
 
-After saving the complete v1.9.3 script, reload DankScape. The header should show **v1.9.3**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
+After saving the complete v1.9.4 script, reload DankScape. The header should show **v1.9.4**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
 
 A startup exception now displays an error panel with **Retry startup** and logs the cause with the prefix `[DankScape Assistant]`. If no panel or **Show DankScape Assistant** menu command exists, check browser injection permissions: the script's enabled toggle alone does not establish that it executed. Tampermonkey documents Chrome's separate **Allow User Scripts** permission in its [official setup FAQ](https://www.tampermonkey.net/faq.php?q=Q209). Browser extension site access must also include DankScape.
 
@@ -218,6 +222,8 @@ For v1.9.1, a live Bal'gar raid was completed manually through native controls. 
 
 For v1.9.2, syntax validation and all 310 tests pass. New checks reject invalid saved budgets, restore older checkpoints with missing newer settings, and keep run preferences locked during pending actions while sound controls remain usable. The localhost browser completed two raids with six attacks, six healing meals, one summon, and one read-only recovery after a lost response. A separate Slayer run completed three tasks using five attacks, five healing meals, and two potions, then stopped at its original action cap. Its moved panel position survived reload. The standalone source decreased from 141,125 to 138,348 bytes through consolidation; it remains readable and has no added runtime dependencies. These are local fixture checks; live Tampermonkey execution was not repeated for this cleanup.
 
+For v1.9.4, syntax validation and all 326 tests pass. The live Arena check was inspected and its initial native link opened `/guard.php?from=arena`; the actual verification button was left untouched. In the localhost browser, a quest paused after its first victory and automatically opened the mock guard page. Completing the mock check returned to a default area, then the queue checked its board, travelled back to the correct area, finished and claimed the quest without a Resume click. The run retained three confirmed attacks, three healing meals, two potion buffs, and its original three-action/one-quest cap. These are fixture results; installed Tampermonkey execution and completion of the live reCAPTCHA remain unverified.
+
 The installed script has no external JavaScript dependencies. npm is only needed for development:
 
 ```powershell
@@ -236,7 +242,7 @@ Open the printed local URL. The server chooses an available port automatically; 
 
 The fixture also includes a navigation page and controls to hide, show, or remove the panel. Add `?trustedtypes=1` to the gathering fixture URL to check startup under enforced Trusted Types. This restriction is a startup check only: the fake game's response renderer still uses HTML strings, so use the ordinary fixture URL for action tests.
 
-Choose **Mock verification required** before Start to interrupt the next request. Open the mock check manually, use its **Complete mock check** link, then choose **Restore & resume** after the default page reset. This exercises the recovery flow without submitting any real human verification.
+Choose **Mock verification required** before Start to interrupt the next request. The assistant opens the mock check automatically; use its **Complete mock check** link, then choose **Restore & resume** after the default page reset. This exercises ordinary activity recovery without submitting any real human verification.
 
 Choose **Unrelated refresh before response** to test a content replacement before confirmation. **Miss + unrelated refresh** also makes Arena and raid attacks miss, while the hero loses one HP and can heal normally. Use a small action limit to finish the fixture run.
 
@@ -251,5 +257,7 @@ In the boss fixture, set **Maximum raids** to 2 and Start. It persists the fake 
 For the separate quest navigation fixture, run `node scripts/quest-preview.cjs` and open its printed URL. Set Maximum quests to 2 and Start. Its combat objective requires three victories and the delivery requires eight gathered items. Visit counters verify that the queue opens Arena and gathering once each, returning to the board only after each objective. All requests stay on localhost.
 
 Append `?completion=automatic` to that fixture URL to model a kill quest moving directly into Chronicled without a level badge. The delivery is already active in this scenario, verifying continuation to the next active quest without accepting a replacement.
+
+Append `?verification=manual` to interrupt the second combat victory with a mock human check. Set Maximum quests to 1 and Maximum actions to 3, then Start. The assistant opens the mock guard page and waits. Click **Complete mock check** yourself; the queue returns through the board and restores the quest's area without a Resume click. Only localhost is involved.
 
 For Slayer, use the same fixture server and open `/slayer.php`. It starts at 21/22 Yetis. Set Maximum actions to 5 and Start to finish and claim three tasks, including travel between two regions, then stop at the original cap. Load and select Attack and Strength potions to include both buffs. All actions remain on localhost.

@@ -6,6 +6,7 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
   zone: 'Meadowbrook Fields', combatLog: '',
   slayer: { completed: 2, task: { target: 'Yeti', progress: 21, goal: 22, zone: 'Meadowbrook Fields' } },
   autoCompleteKill: new URLSearchParams(location.search).get('completion') === 'automatic',
+  verificationTest: new URLSearchParams(location.search).get('verification') === 'manual',
   quests: [
     { id: 'hunt', name: 'Meadow Patrol', target: 'Field Mouse', kind: 'kill', goal: 3, progress: 0, group: 'Active' },
     { id: 'fish', name: 'Feast Supplies', target: 'Fixture resource', kind: 'collect', goal: 8, progress: 0,
@@ -13,7 +14,7 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
     { id: 'locked', name: 'Locked contract', target: 'Other Foe', kind: 'kill', goal: 1, progress: 0, group: 'Locked' },
   ],
 };
-const mode = location.pathname === '/slayer.php' ? 'slayer' : location.pathname === '/quests.php' ? 'quest' : location.pathname === '/arena.php' ? 'arena' : 'gather';
+const mode = location.pathname === '/guard.php' ? 'guard' : location.pathname === '/slayer.php' ? 'slayer' : location.pathname === '/quests.php' ? 'quest' : location.pathname === '/arena.php' ? 'arena' : 'gather';
 const skill = new URLSearchParams(location.search).get('skill') || 'fishing';
 const slayerFight = new URLSearchParams(location.search).get('from') === 'slayer';
 let drinkMessage = '';
@@ -28,12 +29,21 @@ function save() { sessionStorage.setItem(GAME_KEY, JSON.stringify(game)); }
 
 function render() {
   const section = document.querySelector('section.content');
-  if (mode === 'slayer') {
+  if (mode === 'guard') {
+    section.innerHTML = '<h1>Quick human check</h1><p>Local mock check: the assistant must wait for this manual button.</p><button id="complete-mock-check">Complete mock check</button>';
+    document.getElementById('complete-mock-check').addEventListener('click', () => {
+      game.guardRequired = false;
+      game.manualChecks = (game.manualChecks || 0) + 1;
+      game.zone = 'Default area after verification';
+      save();
+      location.assign('/arena.php');
+    });
+  } else if (mode === 'slayer') {
     document.querySelector('aside')?.remove();
     section.innerHTML = slayerContent({ ...game.slayer, away: game.slayer.task?.zone !== game.zone }, `fixture-token-${game.requests}`);
   } else if (mode === 'quest') {
     document.querySelector('aside')?.remove();
-    section.innerHTML = questContent(game.quests.map(quest => ({ ...quest, directFight: quest.kind === 'kill' && quest.progress > 0 })),
+    section.innerHTML = questContent(game.quests.map(quest => ({ ...quest, directFight: quest.kind === 'kill' && quest.progress > 0 && game.zone === 'Meadowbrook Fields' })),
       45, 'Local test hero', `fixture-token-${game.requests}`);
   } else {
     document.getElementById('hud-energy').textContent = `${game.energy} / 100`;
@@ -53,7 +63,10 @@ function render() {
     document.querySelector('aside').insertAdjacentHTML('beforeend', potionMarkup(game.potions,
       game.boosts.map(boost => ({ ...boost, seconds: Math.max(0, Math.ceil((boost.expiresAt - Date.now()) / 1000)) }))));
   }
-  document.getElementById('quest-test-summary').textContent = `Mock requests: ${game.requests} · Completed quests: ${game.quests.filter(q => q.group === 'Chronicled').length} · Slayer tasks completed: ${game.slayer.completed - 2} · Food used: ${20 - game.food} · Board visits: ${game.visits.quest} · Arena visits: ${game.visits.arena} · Gathering visits: ${game.visits.gather}`;
+  if (mode !== 'guard' && game.guardRequired) {
+    section.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Quick human check</h2><a href="/guard.php?from=${location.pathname.slice(1, -4)}">Verify I’m human</a></div>`);
+  }
+  document.getElementById('quest-test-summary').textContent = `Mock requests: ${game.requests} · Completed quests: ${game.quests.filter(q => q.group === 'Chronicled').length} · Slayer tasks completed: ${game.slayer.completed - 2} · Food used: ${20 - game.food} · Board visits: ${game.visits.quest} · Arena visits: ${game.visits.arena} · Gathering visits: ${game.visits.gather} · Manual checks: ${game.manualChecks || 0}`;
 }
 render();
 
@@ -67,6 +80,14 @@ document.addEventListener('submit', async event => {
   const payload = Object.fromEntries(new FormData(form));
   game.requests += 1;
   await fetch(new URL(form.getAttribute('action') || location.href, location.href), { method: 'POST', body: new FormData(form) });
+  if (game.verificationTest && !game.manualChecks && game.quests[0].progress === 1 && payload.action === 'swing') {
+    game.guardRequired = true;
+    save();
+    render();
+    document.getElementById('flash-stack').innerHTML = '<div class="flash flash-error">Quick check needed — confirm you are human.</div>';
+    document.dispatchEvent(new CustomEvent('dank:swapped'));
+    return;
+  }
   if (payload.zone_id) {
     game.zone = payload.from === 'slayer' ? game.slayer.task.zone : 'Meadowbrook Fields';
     game.combatLog = '';

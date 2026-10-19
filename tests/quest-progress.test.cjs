@@ -177,14 +177,14 @@ test('background count checks reject changed heroes, objectives, routes, and fai
   }
 });
 
-test('background human checks pause without navigation or verification submission', async t => {
+test('background human checks open the guard page without submitting verification', async t => {
   const f = await activity(t, { quest: { goal: 1 }, result: { flash: 'You gather resources.' }, beforeScript(window) {
     window.fetch = async url => ({ ok: true, url, text: async () => boardHTML({ ...baseQuest, goal: 1 }, 1)
       .replace('<section class="content">', '<section class="content"><a href="/guard.php?from=gather">Verify I’m human</a>') });
   } });
   await f.advance(3000);
   assert.equal(f.state.requests.length, 1);
-  assert.equal(f.state.navigations.length, 0);
+  assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=gather']);
   assert.equal(f.state.verificationClicks, 0);
   assert.match(f.status(), /Human verification required/);
 });

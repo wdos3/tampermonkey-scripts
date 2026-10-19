@@ -284,9 +284,201 @@ test('manual verification resumes via fresh board progress and keeps the origina
   f.ui.getElementById('quest-resume').click();
   await flush();
   assert.equal(f.state.requests.length, 0);
-  assert.match(f.state.navigations[0], /quests.php$/);
+  assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=arena', 'https://dankscape.com/quests.php']);
   assert.equal(queue(f).deadline, 600000);
   assert.equal(queue(f).config.actions, 3);
+});
+
+function guardPage(t, session, options = {}) {
+  return fixture(t, { url: 'https://dankscape.com/guard.php?from=arena', session, beforeScript(window) {
+    window.document.querySelector('section.content').innerHTML = '<h1>Quick human check</h1><form action="/guard.php?from=arena" method="post"><button>I’m human — continue</button></form>';
+  }, ...options });
+}
+
+async function verificationHandoff(t, settings = {}) {
+  const session = await route(t, contract(), { actions: 3, minutes: 10, ...settings });
+  const f = activity(t, session, { guardOnRequest: 1 });
+  await f.advance(1000);
+  assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=arena']);
+  assert.deepEqual(queue(f).verification, { returnPath: '/arena.php', visited: false });
+  const guard = guardPage(t, f.session(), { now: 1000 });
+  await guard.advance(1000);
+  assert.deepEqual(queue(guard).verification, { returnPath: '/arena.php', visited: true });
+  assert.equal(guard.state.requests.length, 0);
+  assert.equal(guard.state.navigations.length, 0);
+  guard.window.dispatchEvent(new guard.window.Event('pagehide'));
+  assert.equal(queue(guard).verification.visited, true);
+  return guard;
+}
+
+test('manual challenge completion automatically checks the quest board and continues the exact objective', async t => {
+  const guard = await verificationHandoff(t);
+  const returned = activity(t, guard.session(), { now: 5000, zone: 'Default area after verification' });
+  await returned.advance(1000);
+  assert.deepEqual(returned.state.navigations, ['https://dankscape.com/quests.php']);
+  assert.equal(returned.state.requests.length, 0);
+  assert.equal(queue(returned).verification, false);
+  assert.equal(queue(returned).deadline, 600000);
+  assert.equal(queue(returned).config.actions, 3);
+  const fresh = board(t, [contract()], { session: returned.session(), now: 6000 });
+  await fresh.advance(500);
+  assert.equal(fresh.state.requests[0].action, 'travel');
+  const fight = activity(t, fresh.session(), { now: 7000, enemyHP: 3 });
+  await fight.advance(6000);
+  assert.equal(queue(fight).completed, 2);
+  assert.equal(queue(fight).wins, 2);
+  assert.equal(queue(fight).current.target, 'Field Mouse');
+  assert.deepEqual(fight.state.navigations, ['https://dankscape.com/quests.php']);
+});
+
+test('a quest already paused on the guard page can adopt the handoff after an update', async t => {
+  const session = await route(t);
+  const saved = JSON.parse(session[KEY]);
+  Object.assign(saved, { active: false, continuation: null, completed: 1, eaten: 2, drunk: 2, wins: 1, recoveries: 1 });
+  const guard = guardPage(t, { [KEY]: JSON.stringify(saved) });
+  await guard.advance(120000);
+  assert.equal(guard.state.requests.length, 0);
+  const returned = activity(t, guard.session(), { now: 120000 });
+  await returned.advance(500);
+  const resumed = queue(returned);
+  assert.deepEqual([resumed.completed, resumed.eaten, resumed.drunk, resumed.wins, resumed.recoveries], [1, 2, 2, 1, 1]);
+  assert.equal(resumed.deadline, saved.deadline);
+  assert.deepEqual(returned.state.navigations, ['https://dankscape.com/quests.php']);
+});
+
+test('gathering verification resets to the board before restoring the quest resource', async t => {
+  const delivery = contract({ kind: 'collect', target: 'Fixture resource', goal: 4 });
+  const session = await route(t, delivery);
+  const f = activity(t, session, { mode: 'gather', skill: 'fishing', guard: true });
+  await f.advance(500);
+  assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=gather']);
+  const guard = guardPage(t, f.session(), { url: 'https://dankscape.com/guard.php?from=gather' });
+  await guard.advance(500);
+  const returned = fixture(t, { session: guard.session() });
+  await returned.advance(500);
+  assert.deepEqual(returned.state.navigations, ['https://dankscape.com/quests.php']);
+  assert.equal(returned.state.requests.length, 0);
+  const fresh = board(t, [delivery], { session: returned.session() });
+  await fresh.advance(500);
+  assert.deepEqual(fresh.state.navigations, ['https://dankscape.com/gather.php?skill=fishing&target=shark']);
+});
+
+test('a completed strike accompanying a human check is counted once before the handoff', async t => {
+  const session = await route(t);
+  const f = activity(t, session, { activeBattle: true, enemyHP: 3, result: { showCheck: true } });
+  await f.advance(1000);
+  assert.equal(queue(f).completed, 1);
+  assert.equal(queue(f).wins, 1);
+  assert.equal(queue(f).current.progress, 1);
+  assert.equal(queue(f).uncertain, false);
+  assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=arena']);
+  const guard = guardPage(t, f.session());
+  await guard.advance(500);
+  const returned = activity(t, guard.session());
+  await returned.advance(1000);
+  assert.equal(queue(returned).completed, 1);
+  assert.equal(queue(returned).wins, 1);
+  assert.equal(returned.state.requests.length, 0);
+});
+
+test('returning without visiting the challenge cannot authorize automatic quest resume', async t => {
+  const session = await route(t);
+  const f = activity(t, session, { guard: true });
+  await f.advance(500);
+  const returned = activity(t, f.session());
+  await returned.advance(2000);
+  assert.equal(returned.state.navigations.length, 0);
+  assert.equal(returned.state.requests.length, 0);
+});
+
+test('Stop and Escape on the challenge cancel automatic resume', async t => {
+  for (const cancel of ['stop', 'escape']) {
+    const guard = await verificationHandoff(t);
+    if (cancel === 'stop') guard.stop();
+    else guard.document.dispatchEvent(new guard.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await guard.advance(1000);
+    const returned = activity(t, guard.session());
+    await returned.advance(2000);
+    assert.equal(returned.state.requests.length, 0);
+    assert.equal(returned.state.navigations.length, 0);
+    if (cancel === 'escape') assert.equal(queue(returned).verification, false);
+  }
+});
+
+test('an explicitly cancelled queue is not adopted again on the guard page', async t => {
+  const guard = await verificationHandoff(t);
+  guard.document.dispatchEvent(new guard.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const reloaded = guardPage(t, guard.session());
+  await reloaded.advance(2000);
+  assert.equal(queue(reloaded).verification, false);
+  const returned = activity(t, reloaded.session());
+  await returned.advance(2000);
+  assert.equal(returned.state.navigations.length, 0);
+});
+
+test('a pending uncertain action neither opens the check nor retries on return', async t => {
+  const session = await route(t);
+  const f = activity(t, session, { noResponse: true });
+  await f.advance(100);
+  f.showGuard();
+  await f.advance(500);
+  assert.equal(queue(f).uncertain, true);
+  assert.equal(f.state.navigations.length, 0);
+  assert.equal(f.state.requests.length, 1);
+  const guard = guardPage(t, f.session());
+  await guard.advance(500);
+  const returned = activity(t, guard.session());
+  await returned.advance(1000);
+  assert.equal(returned.state.requests.length, 0);
+  assert.equal(returned.state.navigations.length, 0);
+  assert.match(returned.status(), /unconfirmed task action/);
+});
+
+test('challenge waiting cannot extend an expired quest deadline', async t => {
+  const guard = await verificationHandoff(t, { minutes: 1 });
+  const returned = activity(t, guard.session(), { now: 61000 });
+  await returned.advance(1000);
+  assert.equal(returned.state.navigations.length, 0);
+  assert.equal(returned.state.requests.length, 0);
+  assert.equal(queue(returned).verification, false);
+  assert.match(returned.status(), /original time limit expired/);
+});
+
+test('a different hero or return page cannot automatically continue the quest', async t => {
+  for (const mismatch of ['hero', 'page']) {
+    const guard = await verificationHandoff(t);
+    const returned = activity(t, guard.session(), { ...(mismatch === 'page' ? { mode: 'gather' } : { beforeScript(window) {
+      window.document.querySelector('aside h2').textContent = 'Another hero';
+    } }) });
+    await returned.advance(1000);
+    assert.equal(returned.state.navigations.length, 0);
+    assert.equal(returned.state.requests.length, 0);
+    if (mismatch === 'hero') assert.match(returned.status(), /active hero changed/);
+  }
+});
+
+test('another active tab prevents automatic resume without repeated lock attempts', async t => {
+  const locks = lockManager();
+  const other = fixture(t, { locks, noResponse: true });
+  await other.start();
+  const guard = await verificationHandoff(t);
+  const returned = activity(t, guard.session(), { locks });
+  await returned.advance(2000);
+  assert.equal(returned.state.navigations.length, 0);
+  assert.equal(returned.state.requests.length, 0);
+  assert.equal(queue(returned).verification, false);
+  assert.match(returned.status(), /another tab/i);
+});
+
+test('malformed verification destinations are rejected before any continuation', async t => {
+  const session = await route(t);
+  const saved = JSON.parse(session[KEY]);
+  saved.verification = { returnPath: 'https://example.com/arena.php', visited: true };
+  const f = activity(t, { [KEY]: JSON.stringify(saved) });
+  await f.advance(2000);
+  assert.equal(f.state.requests.length, 0);
+  assert.equal(f.state.navigations.length, 0);
+  assert.match(f.status(), /Saved quest data is invalid/);
 });
 
 test('ordinary reload pauses a queue instead of automatically repeating the current action', async t => {

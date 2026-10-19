@@ -173,7 +173,7 @@ test('a human check on the catalogue pauses and manual resume summons only the s
   await f.advance(500);
   assert.deepEqual(actions(f), ['summon']);
   assert.equal(f.state.requests[0].boss, 'fixture-boss');
-  assert.deepEqual(f.state.navigations, ['https://dankscape.com/raid.php?id=124']);
+  assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=raid', 'https://dankscape.com/raid.php?id=124']);
 });
 
 test('a changed hero cannot summon the next raid', async t => {

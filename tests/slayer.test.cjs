@@ -206,15 +206,36 @@ test('Stop cancels a stalled hero lookup and a late result cannot revive the que
   assert.equal(other.state.requests.length, 1);
 });
 
-test('human checks pause Slayer with manual Resume and no verification clicks', async t => {
+test('human checks save Slayer for resume and open only the verification page', async t => {
   const first = board(t);
   await first.start();
   const f = fixture(t, { mode: 'arena', enemyName: 'Yeti', session: await leave(first), guardOnRequest: 1 });
   await f.advance(500);
-  assert.match(f.status(), /Resume Slayer/);
+  assert.match(f.status(), /automatic resume/);
+  assert.deepEqual(f.state.navigations, ['https://dankscape.com/guard.php?from=arena']);
   assert.equal(f.state.verificationClicks, 0);
   assert.equal(record(f).current.progress, 21);
   assert.equal(record(f).active, false);
+});
+
+test('manual verification returns Slayer through its own fresh board and restores the assigned monster', async t => {
+  const first = board(t);
+  await first.start({ actions: 3, minutes: 10 });
+  const f = fixture(t, { mode: 'arena', enemyName: 'Yeti', session: await leave(first), guardOnRequest: 1 });
+  await f.advance(500);
+  const guard = fixture(t, { url: 'https://dankscape.com/guard.php?from=arena', session: await leave(f) });
+  await guard.advance(1000);
+  assert.equal(guard.state.requests.length, 0);
+  const returned = fixture(t, { mode: 'arena', zone: 'Default area', session: await leave(guard) });
+  await returned.advance(500);
+  assert.deepEqual(returned.state.navigations, ['https://dankscape.com/slayer.php']);
+  const fresh = board(t, { session: await leave(returned) });
+  await fresh.advance(500);
+  assert.deepEqual(fresh.state.navigations, ['https://dankscape.com/arena.php?target=1&from=slayer']);
+  assert.equal(record(fresh).current.target, 'Yeti');
+  assert.equal(record(fresh).current.progress, 21);
+  assert.equal(record(fresh).config.actions, 3);
+  assert.equal(record(fresh).deadline, 600000);
 });
 
 test('invalid persisted Slayer counters cannot auto-resume or submit a task', async t => {

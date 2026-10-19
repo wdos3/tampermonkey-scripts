@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.4 — 2026-10-19
+
+- Automatically open visible, same-origin human-check links across game pages, including notices found during read-only progress checks. Wait for pending actions to settle and leave all guard-page and reCAPTCHA controls manual.
+- Persist a quest or Slayer verification handoff in the current tab. After manual verification returns to the recorded page, check the run's own board and restore its exact objective with cumulative limits, food, potion choices, and the original deadline.
+- Support confirmed queues already paused on the guard page when updating. Stop/Escape cancels automatic resume; ordinary reloads, unknown actions, changed heroes, expired deadlines, and another running tab cannot authorize a restart.
+- Add 16 regression tests and a localhost scenario covering automatic entry, manual completion, fresh-board travel after an area reset, exact objectives, cancellation, and retained budgets. Preserve the existing private-repository update URLs and script identity.
+
 ## 1.9.3 — 2026-10-19
 
 - Add `@updateURL` and `@downloadURL` pointing to the stable, authenticated GitHub Raw route on `main` for the private repository.

@@ -20,7 +20,7 @@ const server = http.createServer((request, response) => {
     return;
   }
   if (request.method !== 'GET') { response.writeHead(405).end(); return; }
-  if (['/quests.php', '/slayer.php', '/arena.php', '/gather.php'].includes(url.pathname)) {
+  if (['/quests.php', '/slayer.php', '/arena.php', '/gather.php', '/guard.php'].includes(url.pathname)) {
     const body = page(url.searchParams.get('skill') || 'fishing').replace('</aside>', `${potionMarkup(potions)}</aside>`).replace('</head>', `<style>
       body { background:#101a17; color:#eee7d6; font:16px/1.5 system-ui; margin:28px; max-width:740px; }
       .card,aside { border:1px solid #617267; background:#22352b; padding:16px; margin:16px 0; border-radius:8px; }
