@@ -16,7 +16,7 @@ const potions = [
 // Separate browser fixture: real document navigations and localhost POSTs only.
 const server = http.createServer((request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1');
-  if (request.method === 'POST' && ['/quests.php', '/slayer.php', '/diaries.php', '/arena.php', '/gather.php', '/eat.php', '/drink.php'].includes(url.pathname)) {
+  if (request.method === 'POST' && ['/quests.php', '/slayer.php', '/diaries.php', '/arena.php', '/gather.php', '/eat.php', '/drink.php', '/guard.php'].includes(url.pathname)) {
     request.resume();
     response.writeHead(200, { 'Content-Type': 'text/plain' }).end('Mock quest action completed.');
     return;

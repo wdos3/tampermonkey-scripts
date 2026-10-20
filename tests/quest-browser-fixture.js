@@ -6,7 +6,8 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
   zone: 'Meadowbrook Fields', combatLog: '',
   slayer: { completed: 2, task: { target: 'Yeti', progress: 21, goal: 22, zone: 'Meadowbrook Fields' } },
   autoCompleteKill: new URLSearchParams(location.search).get('completion') === 'automatic',
-  verificationTest: new URLSearchParams(location.search).get('verification') === 'manual',
+  verificationTest: ['manual', 'automatic'].includes(new URLSearchParams(location.search).get('verification')),
+  automaticVerification: new URLSearchParams(location.search).get('verification') === 'automatic',
   diaries: ['Meadowbrook Fields', 'Volcanic Caverns'].map((name, index) => ({ name,
     monsters: [{ id: '1', name: 'Field Mouse', kills: index ? 9 : 10 }, { id: '2', name: 'Other Foe', kills: index ? 9 : 10 },
       { id: '3', name: 'Satisfied Foe', kills: 230 }], tiers: { Easy: { claimed: true }, Medium: { claimed: !index } } })),
@@ -36,14 +37,25 @@ function save() { sessionStorage.setItem(GAME_KEY, JSON.stringify(game)); }
 function render() {
   const section = document.querySelector('section.content');
   if (mode === 'guard') {
-    section.innerHTML = '<h1>Quick human check</h1><p>Local mock check: the assistant must wait for this manual button.</p><button id="complete-mock-check">Complete mock check</button>';
-    document.getElementById('complete-mock-check').addEventListener('click', () => {
+    const complete = () => {
       game.guardRequired = false;
-      game.manualChecks = (game.manualChecks || 0) + 1;
+      const count = game.automaticVerification ? 'automaticChecks' : 'manualChecks';
+      game[count] = (game[count] || 0) + 1;
       game.zone = 'Default area after verification';
       save();
       location.assign('/arena.php');
-    });
+    };
+    if (game.automaticVerification) {
+      section.innerHTML = '<h1>Quick human check</h1><p>Local mock: native Continue succeeds without an extra challenge.</p><form method="post" action="/guard.php?from=arena"><button>I\'m human — continue</button></form>';
+      section.querySelector('form').addEventListener('submit', async event => {
+        event.preventDefault();
+        await fetch('/guard.php?from=arena', { method: 'POST' });
+        complete();
+      });
+    } else {
+      section.innerHTML = '<h1>Quick human check</h1><p>Local mock check: the assistant must wait for this manual button.</p><button id="complete-mock-check">Complete mock check</button>';
+      document.getElementById('complete-mock-check').addEventListener('click', complete);
+    }
   } else if (mode === 'diary') {
     document.querySelector('aside')?.remove();
     section.innerHTML = diaryContent(game.diaries.map(zone => ({ ...zone, away: zone.name !== game.zone })), `fixture-token-${game.requests}`);
@@ -75,7 +87,7 @@ function render() {
   if (mode !== 'guard' && game.guardRequired) {
     section.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Quick human check</h2><a href="/guard.php?from=${location.pathname.slice(1, -4)}">Verify I’m human</a></div>`);
   }
-  document.getElementById('quest-test-summary').textContent = `Mock requests: ${game.requests} · Completed quests: ${game.quests.filter(q => q.group === 'Chronicled').length} · Slayer tasks completed: ${game.slayer.completed - 2} · Food used: ${20 - game.food} · Board visits: ${game.visits.quest} · Arena visits: ${game.visits.arena} · Gathering visits: ${game.visits.gather} · Manual checks: ${game.manualChecks || 0} · Diary claims: ${game.diaryClaims || 0}`;
+  document.getElementById('quest-test-summary').textContent = `Mock requests: ${game.requests} · Completed quests: ${game.quests.filter(q => q.group === 'Chronicled').length} · Slayer tasks completed: ${game.slayer.completed - 2} · Food used: ${20 - game.food} · Board visits: ${game.visits.quest} · Arena visits: ${game.visits.arena} · Gathering visits: ${game.visits.gather} · Manual checks: ${game.manualChecks || 0} · Automatic checks: ${game.automaticChecks || 0} · Diary claims: ${game.diaryClaims || 0}`;
 }
 render();
 
@@ -91,7 +103,7 @@ document.addEventListener('submit', async event => {
   game.requests += 1;
   await fetch(new URL(form.getAttribute('action') || location.href, location.href), { method: 'POST', body });
   const checkProgress = diaryFight ? game.diaries.find(zone => zone.name === game.zone)?.monsters[0].kills === 10 : game.quests[0].progress === 1;
-  if (game.verificationTest && !game.manualChecks && checkProgress && payload.action === 'swing') {
+  if (game.verificationTest && !(game.manualChecks || game.automaticChecks) && checkProgress && payload.action === 'swing') {
     game.guardRequired = true;
     save();
     render();

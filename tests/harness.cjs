@@ -201,6 +201,7 @@ function fixture(t, options = {}) {
     const button = event.submitter || form.querySelector('button');
     assert.ok(button, 'A native submitter must be present');
     if (button.disabled) return;
+    if (window.location.pathname === '/guard.php') { state.verificationClicks += 1; return; }
     const payload = Object.fromEntries(new window.FormData(form, button));
     button.disabled = true;
     const startedAt = clock.now;

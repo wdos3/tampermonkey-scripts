@@ -303,7 +303,8 @@ async function verificationHandoff(t, settings = {}) {
   assert.deepEqual(queue(f).verification, { returnPath: '/arena.php', visited: false });
   const guard = guardPage(t, f.session(), { now: 1000 });
   await guard.advance(1000);
-  assert.deepEqual(queue(guard).verification, { returnPath: '/arena.php', visited: true });
+  assert.deepEqual(queue(guard).verification, { returnPath: '/arena.php', visited: true, continueClicked: true });
+  assert.equal(guard.state.verificationClicks, 1);
   assert.equal(guard.state.requests.length, 0);
   assert.equal(guard.state.navigations.length, 0);
   guard.window.dispatchEvent(new guard.window.Event('pagehide'));

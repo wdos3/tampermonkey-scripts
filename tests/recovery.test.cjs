@@ -93,7 +93,7 @@ test('manual verification recovery returns Mining to Shark Waters and retains co
   assert.equal(restored.session()[KEY], undefined);
 });
 
-test('the guard page never starts actions or submits the human-check form', async t => {
+test('a mismatched guard destination never starts actions or submits verification', async t => {
   const original = await pausedRun(t, { skill: 'fishing' });
   const f = fixture(t, { url: 'https://dankscape.com/guard.php?from=raid', session: original.session(), hp: 99, foods: [shark] });
   const form = f.document.createElement('form');
@@ -573,4 +573,110 @@ test('invalid verification state and failed guard-page storage cannot authorize 
   const returned = fixture(t, { session: guard.session() });
   await returned.advance(1000);
   assert.equal(returned.state.requests.length, 0);
+});
+
+test('native Continue is clicked once per saved handoff, including across mutations and reloads', async t => {
+  const original = await pausedRun(t);
+  const before = savedRun(original);
+  const guard = await verifiedSession(t, original);
+  assert.equal(guard.state.verificationClicks, 1);
+  assert.equal(savedRun(guard).verification.continueClicked, true);
+  for (const key of ['completed', 'eaten', 'drunk', 'wins', 'deadline']) assert.equal(savedRun(guard)[key], before[key]);
+  guard.document.querySelector('section.content').appendChild(guard.document.createElement('p'));
+  await guard.advance(120000);
+  assert.equal(guard.state.verificationClicks, 1);
+  const reload = await verifiedSession(t, guard);
+  assert.equal(reload.state.verificationClicks, 0);
+  assert.equal(savedRun(reload).verification.continueClicked, true);
+});
+
+test('Continue preserves native click handlers and leaves an additional challenge untouched', async t => {
+  let clicks = 0;
+  const guard = await verifiedSession(t, await pausedRun(t), { beforeScript(window) {
+    window.document.querySelector('section.content').innerHTML = '<h1>Quick human check</h1><form method="post"><button>I\'m human — continue</button></form><input type="checkbox" aria-label="Additional challenge">';
+    window.document.querySelector('section.content button').addEventListener('click', event => { clicks += 1; event.preventDefault(); });
+  } });
+  await guard.advance(120000);
+  assert.equal(clicks, 1);
+  assert.equal(guard.state.verificationClicks, 0);
+  assert.equal(guard.document.querySelector('[aria-label="Additional challenge"]').checked, false);
+  assert.equal(savedRun(guard).verification.continueClicked, true);
+  assert.match(guard.status(), /Google challenge/);
+});
+
+test('a disabled Continue can become available without polling or repeated clicks', async t => {
+  const guard = await verifiedSession(t, await pausedRun(t), { beforeScript(window) {
+    window.document.querySelector('section.content').innerHTML = '<h1>Quick human check</h1><form method="post"><button disabled>I\'m human — continue</button></form>';
+  } });
+  assert.equal(guard.state.verificationClicks, 0);
+  guard.document.querySelector('section.content button').disabled = false;
+  await guard.advance(1000);
+  assert.equal(guard.state.verificationClicks, 1);
+});
+
+test('unrecognized, hidden, ambiguous, and unsafe Continue controls remain manual', async t => {
+  const original = await pausedRun(t);
+  for (const markup of [
+    '<form method="post" action="https://example.com/guard.php"><button>I\'m human — continue</button></form>',
+    '<form method="post"><button formaction="https://example.com/guard.php">I\'m human — continue</button></form>',
+    '<form method="get"><button>I\'m human — continue</button></form>',
+    '<form method="post" action="/eat.php"><button>I\'m human — continue</button></form>',
+    '<form method="post"><button formtarget="_blank">I\'m human — continue</button></form>',
+    '<form method="post" hidden><button>I\'m human — continue</button></form>',
+    '<form method="post"><fieldset disabled><button>I\'m human — continue</button></fieldset></form>',
+    '<form method="post"><button>I\'m human — continue</button><button>I\'m human — continue</button></form>',
+    '<form method="post"><button>Other action</button></form>',
+    '<button>I\'m human — continue</button>',
+  ]) {
+    const guard = await verifiedSession(t, original, { beforeScript(window) {
+      window.document.querySelector('section.content').innerHTML = '<h1>Quick human check</h1>' + markup;
+    } });
+    assert.equal(guard.state.verificationClicks, 0, markup);
+    assert.equal(savedRun(guard).verification.continueClicked, undefined, markup);
+  }
+});
+
+test('idle, cancelled, expired, and uncertain runs never authorize a Continue click', async t => {
+  const original = await pausedRun(t);
+  for (const change of ['idle', 'cancelled', 'expired', 'uncertain']) {
+    const record = savedRun(original);
+    if (change === 'cancelled') record.verification = false;
+    if (change === 'expired') record.deadline = 1;
+    if (change === 'uncertain') record.canResume = false;
+    const guard = fixture(t, { session: change === 'idle' ? {} : { [KEY]: JSON.stringify(record) }, now: 10000,
+      url: 'https://dankscape.com/guard.php?from=gather', beforeScript(window) {
+        window.document.querySelector('section.content').innerHTML = '<h1>Quick human check</h1><form method="post"><button>I\'m human — continue</button></form>';
+      } });
+    await guard.advance(1000);
+    assert.equal(guard.state.verificationClicks, 0, change);
+  }
+});
+
+test('Continue requires the shared game lock and writable attempt storage', async t => {
+  const original = await pausedRun(t);
+  const locks = lockManager();
+  let release;
+  const held = locks.request('dankscape-gather-assistant:v1', { ifAvailable: true }, () => new Promise(resolve => { release = resolve; }));
+  const blocked = await verifiedSession(t, original, { locks });
+  assert.equal(blocked.state.verificationClicks, 0);
+  assert.equal(savedRun(blocked).verification, false);
+  release();
+  await held;
+  const record = savedRun(original);
+  record.verification.visited = true;
+  const stored = await verifiedSession(t, original, { session: { [KEY]: JSON.stringify(record) }, beforeScript(window) {
+    window.document.querySelector('section.content').innerHTML = '<h1>Quick human check</h1><form method="post"><button>I\'m human — continue</button></form>';
+    window.Storage.prototype.setItem = () => { throw new Error('Storage denied'); };
+  } });
+  assert.equal(stored.state.verificationClicks, 0);
+});
+
+test('malformed saved Continue markers cannot authorize verification', async t => {
+  const original = await pausedRun(t);
+  const record = savedRun(original);
+  record.verification.continueClicked = 'yes';
+  const invalid = fixture(t, { session: { [KEY]: JSON.stringify(record) }, url: 'https://dankscape.com/guard.php?from=gather' });
+  await invalid.advance(1000);
+  assert.equal(invalid.state.verificationClicks, 0);
+  assert.match(invalid.status(), /Saved activity data is invalid/);
 });

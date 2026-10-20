@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.1 — 2026-10-21
+
+- Try the game's native **I'm human — Continue** button once during a confirmed saved-run verification handoff, then retain exact-activity restoration and cumulative budgets across all modes. Preserve native verification handlers; additional Google challenges remain manual.
+- Persist the attempt before clicking so reloads, rejected submissions, and page updates cannot repeat it. Require a recognized visible same-origin control, an unexpired handoff, writable storage, and the shared game lock. Keep idle, cancelled, and uncertain runs manual.
+- Add seven regression cases and an automatic localhost verification scenario. An authorized live browser click completed the game's check; the local script completed a diary with one automatic Continue and no manual checks. Installed Tampermonkey's live synthetic click remains unverified.
+
 ## 1.10.0 — 2026-10-19
 
 - Add a Diaries mode with area and six-tier selection. Read existing monster counts and per-monster/area-total requirements from the page, skip satisfied monsters, stay in Arena until the current target is done, then check the board and move to the next target. Use native travel and ready Claim controls; confirm claims before continuing and stop at the selected tier.

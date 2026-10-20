@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.10.0
+// @version      1.10.1
 // @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @description  Gathering, combat, raids, quests, Slayer, and Diaries with food, potions, limits, and verification recovery.
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.10.0';
+  const VERSION = '1.10.1';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -521,7 +521,43 @@
 
     function validVerificationIntent(value) {
       return value === undefined || value === false || Boolean(value && typeof value.visited === 'boolean'
+        && (value.continueClicked === undefined || typeof value.continueClicked === 'boolean')
         && /^\/[a-z][a-z0-9_-]{0,49}\.php$/.test(value.returnPath));
+    }
+
+    function verificationContinueButton() {
+      const content = document.querySelector('section.content');
+      if (content?.querySelector('h1')?.textContent.trim() !== 'Quick human check') return null;
+      const buttons = Array.from(content.querySelectorAll('button')).filter(button => button.type === 'submit'
+        && /^I['’]m human\s*[—–-]\s*continue$/i.test(button.textContent.trim()));
+      if (buttons.length !== 1) return null;
+      const button = buttons[0];
+      const form = button.form;
+      if (!form || button.matches(':disabled') || !isShown(button)
+        || (button.getAttribute('formmethod') || form.method).toLowerCase() !== 'post'
+        || !['', '_self'].includes(button.getAttribute('formtarget') || form.target)) return null;
+      try {
+        const destination = new URL(button.getAttribute('formaction') || form.getAttribute('action') || location.href, location.href);
+        return destination.origin === location.origin && destination.pathname === '/guard.php'
+          && !destination.username && !destination.password ? button : null;
+      } catch { return null; }
+    }
+
+    function continueVerification(saved, save) {
+      const intent = saved.verification;
+      const button = verificationContinueButton();
+      if (intent.continueClicked || starting || !button || Date.now() >= saved.deadline) return;
+      void holdGameLock(() => {
+        try {
+          if (button !== verificationContinueButton() || Date.now() >= saved.deadline) return;
+          // Persist before the native click; a challenge, reload, or rejected POST
+          // must not cause another automatic verification attempt.
+          intent.continueClicked = true;
+          if (!save()) return stop(questError || checkpointError);
+          status('Continue clicked once. Complete any Google challenge that appears; the saved run will resume after returning.');
+          button.click();
+        } finally { unlockIfIdle(); }
+      });
     }
 
     function scheduleVerification() {
@@ -549,7 +585,9 @@
           if (!save()) return stop(questError || checkpointError);
         }
         status(uncertain ? 'Complete verification yourself. The unconfirmed action still needs inspection before resuming.'
-          : 'Complete the game’s verification yourself. The saved run will resume after the game returns.');
+          : saved.verification.continueClicked ? 'Waiting after one Continue click. Complete any Google challenge yourself; the saved run will resume after returning.'
+          : 'Waiting for the game’s Continue control. Complete any Google challenge yourself; the saved run will resume after returning.');
+        if (!uncertain) continueVerification(saved, save);
         return;
       }
       if (guard.required) {
@@ -2745,7 +2783,7 @@
       else if (document?.documentElement) render();
       scheduleVerification();
     });
-    const guardObservation = { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class', 'href'] };
+    const guardObservation = { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class', 'href', 'disabled'] };
     let observedBody = document.body;
     guardObserver.observe(observedBody, guardObservation);
     scheduleVerification();
