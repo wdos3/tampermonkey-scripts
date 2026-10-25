@@ -8,6 +8,9 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
   autoCompleteKill: new URLSearchParams(location.search).get('completion') === 'automatic',
   verificationTest: ['manual', 'automatic'].includes(new URLSearchParams(location.search).get('verification')),
   automaticVerification: new URLSearchParams(location.search).get('verification') === 'automatic',
+  raidCatalog: [{ key: 'first', name: 'Fixture Boss', limit: 1 }, { key: 'second', name: 'Other Boss', limit: 2 }, { key: 'locked', name: 'Locked Boss', locked: true }],
+  raidCounts: {}, boss: null, nextRaid: 123,
+  recipes: [{ id: '14', name: 'Cook Shark', materials: [{ name: 'Raw Shark', amount: 1, owned: 10000 }] }],
   diaries: ['Meadowbrook Fields', 'Volcanic Caverns'].map((name, index) => ({ name,
     monsters: [{ id: '1', name: 'Field Mouse', kills: index ? 9 : 10 }, { id: '2', name: 'Other Foe', kills: index ? 9 : 10 },
       { id: '3', name: 'Satisfied Foe', kills: 230 }], tiers: { Easy: { claimed: true }, Medium: { claimed: !index } } })),
@@ -18,7 +21,7 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
     { id: 'locked', name: 'Locked contract', target: 'Other Foe', kind: 'kill', goal: 1, progress: 0, group: 'Locked' },
   ],
 };
-const mode = location.pathname === '/guard.php' ? 'guard' : location.pathname === '/diaries.php' ? 'diary' : location.pathname === '/slayer.php' ? 'slayer' : location.pathname === '/quests.php' ? 'quest' : location.pathname === '/arena.php' ? 'arena' : 'gather';
+const mode = { '/guard.php': 'guard', '/diaries.php': 'diary', '/slayer.php': 'slayer', '/quests.php': 'quest', '/arena.php': 'arena', '/raid.php': 'raid', '/craft.php': 'craft', '/clue.php': 'clue' }[location.pathname] || 'gather';
 const skill = new URLSearchParams(location.search).get('skill') || 'fishing';
 const slayerFight = new URLSearchParams(location.search).get('from') === 'slayer';
 const diaryFight = new URLSearchParams(location.search).get('from') === 'diary';
@@ -56,6 +59,20 @@ function render() {
       section.innerHTML = '<h1>Quick human check</h1><p>Local mock check: the assistant must wait for this manual button.</p><button id="complete-mock-check">Complete mock check</button>';
       document.getElementById('complete-mock-check').addEventListener('click', complete);
     }
+  } else if (mode === 'craft') {
+    document.querySelector('aside')?.remove();
+    section.innerHTML = craftContent(skill, game.recipes, `fixture-token-${game.requests}`);
+  } else if (mode === 'clue') {
+    document.querySelector('aside')?.remove();
+    section.innerHTML = nonogramContent();
+    const output = document.getElementById('nono-cells');
+    const bits = output.value.split('');
+    for (const cell of section.querySelectorAll('button.nono')) cell.addEventListener('click', () => {
+      const index = Number(cell.dataset.i);
+      bits[index] = bits[index] === '1' ? '0' : '1';
+      cell.style.background = bits[index] === '1' ? '#f0c860' : '#1a120a';
+      output.value = bits.join('');
+    });
   } else if (mode === 'diary') {
     document.querySelector('aside')?.remove();
     section.innerHTML = diaryContent(game.diaries.map(zone => ({ ...zone, away: zone.name !== game.zone })), `fixture-token-${game.requests}`);
@@ -70,7 +87,8 @@ function render() {
     document.getElementById('hud-energy').textContent = `${game.energy} / 100`;
     document.querySelector('.hp-text').textContent = `${game.hp} / 100 HP`;
     document.getElementById('hud-xp').innerHTML = `${skill} <strong>100</strong> · ${game.requests * 18} / 10000 XP`;
-    section.innerHTML = mode === 'arena' ? arenaContent({ active: game.activeFight, hp: 8, zone: game.zone,
+    section.innerHTML = mode === 'raid' ? raidContent(new URLSearchParams(location.search).has('id') ? game.boss : null, `fixture-token-${game.requests}`, false, game.raidCatalog)
+      : mode === 'arena' ? arenaContent({ active: game.activeFight, hp: 8, zone: game.zone,
       name: diaryFight ? diaryMonster.name : slayerFight ? game.slayer.task.target : 'Field Mouse',
       log: game.activeFight ? 'The battle begins.' : game.combatLog || (game.quests[0].progress
         ? `You strike the Field Mouse for 8 damage. You slay the Field Mouse!\n📜 Meadow Patrol: ${game.quests[0].progress} / ${game.quests[0].goal}` : '') })
@@ -87,6 +105,9 @@ function render() {
   if (mode !== 'guard' && game.guardRequired) {
     section.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Quick human check</h2><a href="/guard.php?from=${location.pathname.slice(1, -4)}">Verify I’m human</a></div>`);
   }
+  if (mode === 'raid' && !new URLSearchParams(location.search).has('id') && game.summonMessage) {
+    document.getElementById('flash-stack').innerHTML = `<div class="flash flash-ok">${game.summonMessage}</div>`;
+  }
   document.getElementById('quest-test-summary').textContent = `Mock requests: ${game.requests} · Completed quests: ${game.quests.filter(q => q.group === 'Chronicled').length} · Slayer tasks completed: ${game.slayer.completed - 2} · Food used: ${20 - game.food} · Board visits: ${game.visits.quest} · Arena visits: ${game.visits.arena} · Gathering visits: ${game.visits.gather} · Manual checks: ${game.manualChecks || 0} · Automatic checks: ${game.automaticChecks || 0} · Diary claims: ${game.diaryClaims || 0}`;
 }
 render();
@@ -102,6 +123,28 @@ document.addEventListener('submit', async event => {
   button.disabled = true;
   game.requests += 1;
   await fetch(new URL(form.getAttribute('action') || location.href, location.href), { method: 'POST', body });
+  if (mode === 'craft') {
+    const recipe = game.recipes.find(recipe => recipe.id === payload.recipe_id);
+    for (const item of recipe.materials) item.owned -= Number(payload.times) * item.amount;
+    save();
+    render();
+    document.dispatchEvent(new CustomEvent('dank:swapped'));
+    return;
+  }
+  if (mode === 'raid' && payload.action === 'summon') {
+    const selected = game.raidCatalog.find(boss => boss.key === payload.boss);
+    if ((game.raidCounts[selected.name] || 0) >= selected.limit) {
+      game.summonMessage = `✓ You've already defeated ${selected.name} ${selected.limit} times today — it will return tomorrow. (${selected.limit} fights per boss per day thanks to your Fervor perk.)`;
+      save();
+      location.assign('/raid.php');
+      return;
+    }
+    game.summonMessage = '';
+    game.boss = { id: String(++game.nextRaid), name: selected.name, hp: 10, maximum: 10, state: 'Active', fighters: [] };
+    save();
+    location.assign(`/raid.php?id=${game.boss.id}`);
+    return;
+  }
   const checkProgress = diaryFight ? game.diaries.find(zone => zone.name === game.zone)?.monsters[0].kills === 10 : game.quests[0].progress === 1;
   if (game.verificationTest && !(game.manualChecks || game.automaticChecks) && checkProgress && payload.action === 'swing') {
     game.guardRequired = true;
@@ -149,6 +192,12 @@ document.addEventListener('submit', async event => {
     game.boosts = game.boosts.filter(boost => !stats.includes(boost.stat));
     game.boosts.push(...stats.map(stat => ({ stat, boost: potion.boost, expiresAt: Date.now() + 300000 })));
     drinkMessage = `You drink the ${potion.name}. +${potion.boost} ${potion.stat === 'combat' ? 'Attack/Strength/Defence' : potion.stat === 'attack' ? 'Attack' : 'Strength'} — active for 5 more minutes.`;
+  } else if (mode === 'raid') {
+    game.boss.hp = 0;
+    game.boss.fighters = [{ hero: 'Local test hero', damage: 10 }];
+    game.raidCounts[game.boss.name] = (game.raidCounts[game.boss.name] || 0) + 1;
+    game.hp -= 1;
+    drinkMessage = `You struck for 10 and felled ${game.boss.name}! Rewards are split by damage dealt.`;
   } else if (mode === 'arena') {
     if (payload.action === 'engage') game.activeFight = true;
     if (payload.action === 'swing') {

@@ -1,6 +1,6 @@
 # DankScape Assistant
 
-A standalone Tampermonkey userscript for gathering, arena combat, raid/boss attacks, quests, Slayer, and Diaries, with conservative energy recovery and immediate HP healing. Version **1.10.1** tries the native verification Continue button once during a saved run's human-check handoff. All modes share run preferences, support a 0.1-second delay, and resume saved runs after verification returns. Additional Google challenges remain manual. The file remains `dankscape-gather.user.js`, and the Tampermonkey metadata name remains **DankScape Gathering Assistant** so existing installations keep their identity.
+A standalone Tampermonkey userscript for gathering, bulk crafting, arena combat, raids, quests, Slayer, and Diaries, with a nonogram clue helper. Version **1.11.0** adds all-boss raid cycles with daily-limit skips, native Summon/Attack auto-start, and crafting batches that continue beyond 1,000 operations. Continuous modes share run preferences, support a 0.1-second delay, and resume saved runs after verification returns. Additional Google challenges remain manual. The file remains `dankscape-gather.user.js`, and the Tampermonkey metadata name remains **DankScape Gathering Assistant** so existing installations keep their identity.
 
 Version 1.2.1 strengthens panel startup and recovery. The panel appears on all DankScape pages; Start is available only on supported activity pages with an eligible target.
 
@@ -23,7 +23,7 @@ The metadata uses GitHub's authenticated `github.com/.../raw/...` route. It cont
 
 For future releases, increase `@version`, the visible `VERSION`, and the package versions together before pushing the updated standalone file to `main`. Tampermonkey compares `@version`; editing the server file without increasing it does not publish a newer version. The [metadata documentation](https://www.tampermonkey.net/documentation.php?locale=en&q=update_url) describes `@updateURL` and `@downloadURL`.
 
-The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, Slayer, or Diaries. Ordinary page loads start stopped. **Start** begins the current mode; **Stop** or **Esc** stops it. **Alt + Shift + G** toggles Start/Stop. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, task travel, and saved verification handoffs can continue across page loads.
+The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, Slayer, Diaries, Crafting, or Clues. Ordinary page loads start stopped. **Start** begins the current mode, **Craft all** starts batch crafting, and **Fill solution** fills a supported clue board. **Stop** or **Esc** stops a continuous run. **Alt + Shift + G** invokes the current action. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, task travel, saved verification handoffs, and opted-in native raid starts can continue across page loads.
 
 Expand **Run limits**, **Food & healing**, **Potions**, or **Recovery** to edit their settings. Repeated instructions and the text beneath Start/Stop were removed; status and counters remain visible. Saved settings and keyboard shortcuts still work. Normal sound-readiness text is hidden; audio errors remain visible.
 
@@ -81,7 +81,8 @@ The script retains **Restore & resume** for manual recovery. During a valid veri
 | --- | --- |
 | Gathering | Return to the original skill URL and select the same resource key. Fishing Shark Waters resumes Shark Waters, even if verification returned you to Mining. |
 | Arena | Return to Arena, use its fresh travel form to restore the saved area if needed, and continue the same enemy. An unrelated active fight must be resolved manually first. |
-| Raid/Boss | Reopen the saved raid ID, or continue a saved repeat handoff for the same boss. A new ID is accepted only as the result of that handoff. |
+| Raid/Boss | Reopen the saved raid ID, or continue the saved single/all-boss summon handoff. A new ID is accepted only as the confirmed result of that handoff. |
+| Crafting | Return to the saved Workshop skill and recipe, verify the hero, and continue with the remaining batch/time budget. |
 
 Confirmed actions, food consumed, arena wins, settings, the remaining delay after a result, and the original time deadline survive the interruption. Verification time counts toward the time limit. A rejected guard request is not counted as a successful action. Healing and energy recovery resume with their existing policies after verification.
 
@@ -99,7 +100,7 @@ Browser autoplay rules can require interaction on a new page, and a muted tab or
 
 ### If the panel is missing
 
-After saving the complete v1.10.1 script, reload DankScape. The header should show **v1.10.1**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
+After saving the complete v1.11.0 script, reload DankScape. The header should show **v1.11.0**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
 
 A startup exception now displays an error panel with **Retry startup** and logs the cause with the prefix `[DankScape Assistant]`. If no panel or **Show DankScape Assistant** menu command exists, check browser injection permissions: the script's enabled toggle alone does not establish that it executed. Tampermonkey documents Chrome's separate **Allow User Scripts** permission in its [official setup FAQ](https://www.tampermonkey.net/faq.php?q=Q209). Browser extension site access must also include DankScape.
 
@@ -115,8 +116,30 @@ The original disappearance was reported across all pages, but the installed exte
 | Quests | Open the Quest Board and set cumulative queue limits. | Accept supported eligible contracts, follow their activity routes, complete objectives, turn in rewards, and continue. |
 | Slayer | Open the Slayer Master and set shared run limits. | Continue or take a task, hunt its exact monster, claim the reward, and repeat. |
 | Diaries | Open Diaries, choose an area and target tier. | Skip satisfied monsters, complete the remaining per-monster/area-total kills, and claim the selected tier. |
+| Crafting | Open a Workshop skill, select a recipe, and press Craft all. | Repeat native batches of up to 1,000 operations until materials or a shared run limit are exhausted. |
+| Clues | Open a supported current nonogram and press Fill solution. | Fill a unique solution through native cell clicks; submission and other trail steps remain manual. |
 
-The script preserves the game's current equipment, combat style, prayer, and boss selection. Normal runs stay in the selected location; recovery can travel back to the saved arena area after verification or when you choose Restore & resume. It does not switch enemies during an active fight, change combat style, buy food or potions, or automate PvP. Raid repetition summons only the selected boss after a confirmed defeat. An unexpected change of boss or raid ID still pauses the run.
+The script preserves the game's current equipment, combat style, and prayer. Normal combat stays in the selected location; recovery can travel back to the saved arena area after verification or when you choose Restore & resume. It does not switch enemies during an active fight, change combat style, buy food or potions, or automate PvP. Single-boss raid repetition summons the selected boss after a confirmed defeat. All-boss mode selects its next boss from the native catalogue; every new raid ID still requires confirmation from the saved summon handoff.
+
+## All-boss raid cycles
+
+On the raid catalogue or an open boss, expand **Run limits**, enable **Cycle all available bosses; auto-start after I summon one**, and set **Raids per boss** to X. Configure food, potions, and the shared action/time limits before starting. The next native **Summon**, or the first native **Attack** in a boss fight, starts the cycle without another Assistant Start click. Enabling the option or reloading an idle boss page alone does not start combat. This option defaults off to preserve existing single-boss runs.
+
+The opened boss counts as its first completion. Continue it up to X confirmed defeats, then work through remaining unlocked catalogue bosses in page order. Already completed bosses are skipped. The game's named **You've already defeated [boss] ... today — it will return tomorrow** message marks that boss exhausted and advances early, including a rejected full-page summon. Missing/disabled summon controls are unavailable. Stop when every available boss has reached X or its daily allowance. Counts are per run; the server enforces remaining daily allowance from previous runs.
+
+Attack, food, potion, and time budgets remain cumulative across all bosses. Raise the default 100-action/30-minute limits for larger cycles. Heal after a finishing hit before another summon. Unknown errors, unknown summon outcomes, changed heroes, or unexpected raid IDs pause the cycle; they never authorize repeating an uncertain POST. Stop/Escape cancels continuation. Leave the cycle option off to retain **Maximum raids** and repeat just the current boss.
+
+## Bulk crafting
+
+Open **Craft**, choose its skill tab, select the Assistant's **Recipe**, and press **Craft all**. The script uses fresh native forms and batches the smaller of 1,000, the form's allowed maximum, and the available ingredient ratios. For example, 10,000 raw fish become ten 1,000-operation batches. A recipe that yields 50 arrows counts each recipe operation once, rather than treating its 50 output arrows as 50 operations. No material purchases or automatic recipe changes occur.
+
+After every response, all ingredient counts must fall by exactly the submitted batch's requirements before another batch is allowed. This works when the game's transient message has disappeared. A final partial batch uses only the remaining craftable amount. Shared **Maximum actions** counts batches; time, delay, Stop, Web Locks, saved verification handoffs, and confirmed-response recovery apply. An unchanged or unidentifiable result is never blindly repeated. Energy/food/potion controls do not apply to Workshop operations. The Workshop has no hero sidebar, so Start and recovery verify the living active hero through Arena.
+
+## Clue Trails helper
+
+The game's page lists Sudoku, Lights Out, nonograms, sliding tiles, rune-lock codebreaking, word searches, the Treasurer Ledger, anagrams, ciphers, and riddles, plus a deed performed elsewhere in the realm. Only **nonograms up to 10×10** are currently supported. The other types and all deeds remain manual; the assistant does not read more scrolls, open caskets, guess answers, or claim trail rewards automatically.
+
+On a current nonogram, click **Fill solution**. The helper reads its visible row/column hints, requires exactly one solution within a bounded search, and clicks the native cells to paint it. It leaves **Submit answer** to you. Ambiguous, impossible, malformed, or larger boards remain unchanged. A shared game lock prevents filling while another Assistant tab is running. These game puzzles are separate from the human-verification flow; additional Google challenges remain manual.
 
 Arena and raid turns in the inspected session did not consume energy. Gathering reads its energy cost from the selected resource's card. Keep **Keep this much energy** at **0** to retain the original policy of recovering energy only when there is too little for the next action.
 
@@ -124,7 +147,7 @@ Arena and raid turns in the inspected session did not consume energy. Gathering 
 
 Open an active raid using the game’s controls, set **Maximum raids** to **2 or more**, and Start. The limit includes the currently open raid. Its default of **1** retains the original behavior of stopping after that boss.
 
-After a confirmed defeat, the assistant heals any missing HP, follows **All raids**, finds the same boss’s card, and clicks its native **Summon** button. It resumes combat only after verifying a fresh active raid ID for that boss. If the catalogue updates in place, it first opens the confirmed raid’s URL so the raid remains identifiable after its attack form disappears. The game’s defeated screen already reports that rewards were shared; there is no separate claim action in this flow.
+With all-boss mode off, a confirmed defeat makes the assistant heal any missing HP, follow **All raids**, find the same boss’s card, and click its native **Summon** button. It resumes combat only after verifying a fresh active raid ID for that boss. If the catalogue updates in place, it first opens the confirmed raid’s URL so the raid remains identifiable after its attack form disappears. The game’s defeated screen already reports that rewards were shared; there is no separate claim action in this flow.
 
 The final-hit message uses different wording from ordinary attacks: “You struck for … and felled …”. The assistant recognizes it for the exact selected boss on a defeated screen. If a hit message disappears, an increase in your own Damage Board contribution for the same hero and raid can confirm the sent attack, including during read-only recovery. Another player's damage, a missing personal row, and unchanged damage do not establish a result; an unknown attack is never automatically resubmitted.
 
@@ -152,10 +175,10 @@ Drinks use the current native **Quick drink** form and its selected inventory op
 | --- | --- | --- |
 | Delay after result | 0.1 seconds | Minimum 0.1, adjustable in 0.1-second increments. Additional wait after a confirmed result; the game's own cooldown also applies. |
 | Energy reserve | 0 | Do not take an action that would leave less energy than this amount. |
-| Maximum actions | 100 | Counts confirmed gathers, arena strikes, and boss strikes. Engagement, eating, and drinking do not count. |
+| Maximum actions | 100 | Counts confirmed gathers, arena strikes, boss strikes, and crafting batches. Engagement, eating, and drinking do not count. |
 | Maximum minutes | 30 | Includes responses, cooldowns, healing, regeneration, and manual verification. |
 | Maximum arena wins | 100 | Cumulative victories across Arena, Quests, Slayer, and Diaries. |
-| Maximum raids | 1 | Includes the opened raid. Set above 1 to repeat the same boss after defeat; run budgets stay cumulative. |
+| Maximum raids / Raids per boss | 1 | Includes the opened raid. In all-boss mode, X applies separately to each available boss; otherwise repeat only the current boss. Run budgets stay cumulative. |
 | Heal immediately | On | Eat as soon as the current page reports any missing HP, before another attack or gather. |
 | Automatically eat for energy | On | Eat only when energy is insufficient for the next action and reserve. |
 | Food | Game's selected food | Use the current quick-eat choice, or select a particular food by name. An explicit choice is never silently substituted. |
@@ -247,6 +270,8 @@ For v1.10.0, syntax validation and all 366 tests pass, including 19 diary cases 
 
 For v1.10.1, syntax validation and all 373 tests pass. Seven new cases cover a single persisted native Continue attempt, native event handlers, extra-challenge fallback, controls becoming enabled, unsafe/ambiguous controls, cancellation, deadlines, unknown actions, storage failures, and the shared tab lock. On 2026-10-21, an explicitly authorized browser click of the live **I'm human — continue** button, on a page with an embedded Google reCAPTCHA, returned to Arena with **Verified — thanks for keeping DankScape fair. Back to it!** No separate checkbox or image challenge appeared. The localhost browser completed a Medium diary with one automatic mock Continue, zero manual checks, two confirmed attacks, two healing meals, one Super Combat Elixir, and one confirmed claim; its original budgets remained intact and logs contained no warnings/errors. This verifies the native browser click and local script flow. Installed Tampermonkey's synthetic click against live Google verification remains unverified; future checks may still require manual completion.
 
+For v1.11.0, syntax validation and all 396 tests pass: ten new raid-cycle cases, eight crafting cases, and five nonogram cases. The localhost browser started a cycle from the native Summon button, completed three raid fights across two bosses with daily allowances of one and two, healed three times, maintained one Super Combat Elixir, and stopped after both named quotas. A second local run consumed 10,000 test fish through ten batches; a third filled the nonogram without submitting or making a server request. All three logs had no warnings/errors. Live inspection established the raid catalogue and Workshop forms, and one raw Shark was crafted through the real native control (14 to 13 remaining). A sanitized live cooking page parsed all 17 recipes and its four available choices. The uniquely solved live nonogram was accepted and advanced an Easy trail to its second, manual deed step. The daily-limit wording came from the user; quota variants and all-boss continuation are fixture-tested. Installed Tampermonkey execution and an unattended live multi-boss/bulk-crafting run remain unverified.
+
 The installed script has no external JavaScript dependencies. npm is only needed for development:
 
 ```powershell
@@ -288,3 +313,5 @@ For Slayer, use the same fixture server and open `/slayer.php`. It starts at 21/
 For Diaries, open `/diaries.php?verification=manual` on that server. Choose Volcanic Caverns and Medium, expand Run limits and set actions/wins to 2. Expand Potions, load choices, and select Super Combat Elixir under Combat. The fixture starts two monsters at 9/10 and a satisfied monster at 230 kills. It exercises travel, target switching, a manual mock check, automatic resume, healing, and claiming Medium at the native 250-total requirement. All claims and potion effects in this fixture are simulated.
 
 Use `/diaries.php?verification=automatic` in a fresh fixture session for the same scenario with a native mock Continue form. The Assistant should click it once and finish without manual verification input. The mock contains no Google CAPTCHA and contacts only localhost.
+
+For v1.11.0 checks on the same server, `/raid.php` provides two mock bosses with daily allowances of one and two. Enable all-boss mode, choose X=3, and use the game's native Summon control. `/craft.php?skill=cooking` has 10,000 test ingredients for Craft all; allow at least ten actions. `/clue.php` provides the observed Easy nonogram for Fill solution. Use separate tabs/fresh sessions for independent runs.

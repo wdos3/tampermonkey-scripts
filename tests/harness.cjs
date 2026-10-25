@@ -159,7 +159,9 @@ function fixture(t, options = {}) {
       } else if (kind === 'travel') {
         state.arena.zone = ['Meadowbrook Fields', 'Mossgill Sewers', 'Volcanic Caverns'][Number(selectedId) - 1];
       } else if (kind === 'raid-summon') {
-        state.raid = { id: '124', name: 'Fixture Boss', hp: 10, maximum: 10, state: 'Active', ...options.summonedBoss };
+        const message = typeof options.summonMessage === 'function' ? options.summonMessage(selectedId) : options.summonMessage;
+        state.raid = message ? null : { id: '124', name: options.raidCatalog?.find(boss => boss.key === selectedId)?.name || 'Fixture Boss', hp: 10, maximum: 10, state: 'Active', ...options.summonedBoss };
+        flash ??= message;
       } else if (kind === 'raid') {
         state.raid.hp = Math.max(0, state.raid.hp - (options.miss ? 0 : options.damage ?? 10));
         if (state.raid.fighters && !options.miss) {
@@ -207,6 +209,7 @@ function fixture(t, options = {}) {
     const startedAt = clock.now;
     const requestURL = new URL(form.getAttribute('action') || window.location.href, window.location.href).href;
     state.requests.push(payload);
+    if (mode === 'craft') { options.craftSubmit?.(payload, state, window); return; }
     if (mode === 'diary') { options.diarySubmit?.(payload, state, window); return; }
     if (mode === 'slayer') { options.slayerSubmit?.(payload, state, window); return; }
     if (mode === 'quest') {

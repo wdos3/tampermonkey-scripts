@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.10.1
+// @version      1.11.0
 // @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
-// @description  Gathering, combat, raids, quests, Slayer, and Diaries with food, potions, limits, and verification recovery.
+// @description  Gathering, bulk crafting, combat, raid cycles, tasks, and nonogram help with food, potions, and recovery.
 // @match        https://dankscape.com/*
 // @run-at       document-idle
 // @sandbox      DOM
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.10.1';
+  const VERSION = '1.11.0';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -271,6 +271,7 @@
     const QUEST_KEY = 'dankscape-assistant:quest-queue:v1';
     const MISSING_QUEST_REASON = 'No longer listed on the quest board; completion unconfirmed.';
     const SKILLS = new Set(['mining', 'woodcutting', 'fishing', 'herblore']);
+    const CRAFT_SKILLS = new Set(['fletching', 'smithing', 'cooking', 'jewelcrafting', 'alchemy', 'enchanting']);
     const POTION_STATS = { combat: 'Combat', attack: 'Attack', strength: 'Strength', defense: 'Defence', ranged: 'Ranged', magic: 'Magic' };
     const COMBAT_STATS = ['attack', 'strength', 'defense'];
     const DIARY_TIERS = ['Easy', 'Medium', 'Hard', 'Extreme', 'Legendary', 'Insane'];
@@ -286,14 +287,14 @@
       drinks: { label: 'Maximum potions per run', value: 100, min: 1, max: 1000000, modes: ['arena', 'raid', 'quest', 'slayer', 'diary'], optional: true },
       maxRaids: { label: 'Maximum raids', value: 1, min: 1, max: 1000000, modes: ['raid'], optional: true },
     };
-    const CHECK_SETTINGS = ['autoEat', 'autoHeal', 'autoRecover', 'wait'];
+    const CHECK_SETTINGS = ['autoEat', 'autoHeal', 'autoRecover', 'wait', 'raidAll'];
     const DEFAULTS = { target: '', ...Object.fromEntries(Object.entries(NUMBER_SETTINGS).map(([id, setting]) => [id, setting.value])),
-      autoEat: true, autoHeal: true, autoRecover: true, food: '', wait: false, potions: [], diaryTier: 'Easy' };
+      autoEat: true, autoHeal: true, autoRecover: true, food: '', wait: false, raidAll: false, potions: [], diaryTier: 'Easy' };
 
-    const mode = { '/gather.php': 'gather', '/arena.php': 'arena', '/raid.php': 'raid', '/quests.php': 'quest', '/slayer.php': 'slayer', '/diaries.php': 'diary' }[location.pathname] || 'hall';
+    const mode = { '/gather.php': 'gather', '/arena.php': 'arena', '/raid.php': 'raid', '/craft.php': 'craft', '/clue.php': 'clue', '/quests.php': 'quest', '/slayer.php': 'slayer', '/diaries.php': 'diary' }[location.pathname] || 'hall';
     const onTaskBoard = Object.hasOwn(TASK_BOARDS, mode);
-    const skill = new URLSearchParams(location.search).get('skill') || 'mining';
-    const settingsKey = `settings:${mode === 'gather' ? skill : mode}`;
+    const skill = new URLSearchParams(location.search).get('skill') || (mode === 'craft' ? 'fletching' : 'mining');
+    const settingsKey = `settings:${mode === 'gather' ? skill : mode === 'craft' ? `craft:${skill}` : mode}`;
     let run = null;
     let pending = null;
     let timer = null;
@@ -378,14 +379,16 @@
         element('p', {}, [element('a', { href: '/gather.php' }, 'Gathering'), ' · ',
           element('a', { href: '/arena.php' }, 'Combat'), ' · ', element('a', { href: '/raid.php' }, 'Raids'),
           ' · ', element('a', { href: '/quests.php' }, 'Quests'), ' · ', element('a', { href: '/slayer.php' }, 'Slayer'),
-          ' · ', element('a', { href: '/diaries.php' }, 'Diaries')]),
+          ' · ', element('a', { href: '/diaries.php' }, 'Diaries'), ' · ', element('a', { href: '/craft.php' }, 'Crafting'),
+          ' · ', element('a', { href: '/clue.php' }, 'Clues')]),
         element('label', {}, [element('span', { id: 'target-label' }, 'Resource'), element('select', { id: 'target', 'aria-label': 'Resource' })]),
         element('div', { id: 'diary-settings', hidden: '' }, [element('label', {}, ['Diary tier',
           element('select', { id: 'diary-tier', 'aria-label': 'Diary tier' }, DIARY_TIERS.map(tier => element('option', { value: tier }, tier)))])]),
         element('details', { id: 'limits-settings' }, [element('summary', {}, 'Run limits'),
           element('div', { class: 'grid' }, ['interval', 'reserve', 'actions', 'minutes'].map(numberSetting)), battleSettings,
           element('div', { id: 'quest-settings', hidden: '' }, [numberSetting('quests')]),
-          element('div', { id: 'raid-settings', hidden: '' }, [numberSetting('maxRaids')])]),
+          element('div', { id: 'raid-settings', hidden: '' }, [numberSetting('maxRaids'),
+            checkSetting('Cycle all available bosses; auto-start after I summon one', 'raidAll')])]),
         element('details', { id: 'food-settings' }, [element('summary', {}, 'Food & healing'),
           checkSetting('Heal immediately whenever HP is below full', 'autoHeal'),
           checkSetting('Automatically eat when energy is too low to act', 'autoEat'),
@@ -398,7 +401,7 @@
           element('button', { id: 'load-potions', type: 'button', hidden: '' }, 'Load potion choices from Combat'),
           element('p', { id: 'potion-info', class: 'hint', role: 'status' }),
         ]),
-        element('details', {}, [element('summary', {}, 'Recovery'),
+        element('details', { id: 'recovery-settings' }, [element('summary', {}, 'Recovery'),
           checkSetting('Wait for regeneration when food recovery is unavailable', 'wait'),
           checkSetting('Automatically recover stalled responses', 'autoRecover')]),
       ]),
@@ -620,7 +623,7 @@
       return page.querySelector('aside.sidebar h2')?.textContent.trim()
         || (page.querySelector('section.content h1')?.textContent.trim() === 'Quest Board'
           ? page.querySelector('section.content .card p.dim strong')?.textContent.trim() : '')
-        || (page === document && ['slayer', 'diary'].includes(mode) ? taskHero : '') || '';
+        || (page === document && ['slayer', 'diary', 'craft'].includes(mode) ? taskHero : '') || '';
     }
     function arenaZone(page = document) { return page.querySelector('section.content h1')?.textContent.trim() || ''; }
 
@@ -635,6 +638,7 @@
       if (!['autoEat', 'autoHeal', 'wait'].every(key => typeof config[key] === 'boolean')
         || typeof config.food !== 'string' || config.food.length > 200) return false;
       if (config.autoRecover !== undefined && typeof config.autoRecover !== 'boolean') return false;
+      if (config.raidAll !== undefined && typeof config.raidAll !== 'boolean') return false;
       if (config.diaryTier !== undefined && !DIARY_TIERS.includes(config.diaryTier)) return false;
       if (config.potions !== undefined && (!Array.isArray(config.potions) || config.potions.length > Object.keys(POTION_STATS).length
         || !config.potions.every(potion => potion && Object.hasOwn(POTION_STATS, potion.stat)
@@ -644,6 +648,12 @@
     }
 
     function validRunProgress(value) {
+      if (value.raidCounts !== undefined && (!Array.isArray(value.raidCounts) || value.raidCounts.length > 100
+        || !value.raidCounts.every(entry => typeof entry?.name === 'string' && entry.name.length > 0 && entry.name.length <= 200
+          && Number.isSafeInteger(entry.completed) && entry.completed >= 0 && entry.completed <= 1000000)
+        || new Set(value.raidCounts.map(entry => entry.name.toLowerCase())).size !== value.raidCounts.length)) return false;
+      if (value.raidSkipped !== undefined && (!Array.isArray(value.raidSkipped) || value.raidSkipped.length > 100
+        || !value.raidSkipped.every(name => typeof name === 'string' && name.length > 0 && name.length <= 200))) return false;
       if (value.raidsCompleted !== undefined && (!Number.isSafeInteger(value.raidsCompleted) || value.raidsCompleted < 0 || value.raidsCompleted > 1000000)) return false;
       if (value.drunk !== undefined && (!Number.isSafeInteger(value.drunk) || value.drunk < 0 || value.drunk > 1000000)) return false;
       if (value.recoveries !== undefined && (!Number.isSafeInteger(value.recoveries)
@@ -657,15 +667,18 @@
     }
 
     function validCheckpoint(value) {
-      if (!value || value.version !== 1 || !['gather', 'arena', 'raid'].includes(value.mode)
+      if (!value || value.version !== 1 || !['gather', 'arena', 'raid', 'craft'].includes(value.mode)
         || !validRunConfig(value.config) || !validRunProgress(value) || !validVerificationIntent(value.verification)) return false;
+      if (value.mode === 'raid' && value.config.raidAll && (!Array.isArray(value.raidCounts) || !Array.isArray(value.raidSkipped))) return false;
       if (value.raidPhase !== undefined && (value.mode !== 'raid' || !['catalog', 'summon'].includes(value.raidPhase))) return false;
       if (!Number.isSafeInteger(value.steps) || value.steps < 0 || value.steps > 1000000
         || !['canResume', 'restoreRequested'].every(key => typeof value[key] === 'boolean')) return false;
       if (!['targetName', 'character', 'zone', 'finishReason'].every(key => typeof value[key] === 'string' && value[key].length <= 500)) return false;
       return (value.mode !== 'gather' || SKILLS.has(value.skill))
+        && (value.mode !== 'craft' || CRAFT_SKILLS.has(value.skill))
         && (value.mode !== 'arena' || Boolean(value.zone))
-        && (value.mode !== 'raid' || /^\d{1,30}$/.test(value.raidId));
+        && (value.mode !== 'raid' || /^\d{1,30}$/.test(value.raidId)
+          || (value.config.raidAll && value.raidPhase && value.raidId === ''));
     }
 
     function readCheckpoint() {
@@ -708,13 +721,13 @@
 
     function checkpointURL(value) {
       const url = new URL(`/${value.mode}.php`, location.origin);
-      if (value.mode === 'gather') url.searchParams.set('skill', value.skill);
+      if (['gather', 'craft'].includes(value.mode)) url.searchParams.set('skill', value.skill);
       if (value.mode === 'raid' && value.raidPhase !== 'catalog') url.searchParams.set('id', value.raidId);
       return url.href;
     }
 
     function rememberActivity() {
-      if (!['gather', 'arena', 'raid'].includes(mode)) return false;
+      if (!['gather', 'arena', 'raid', 'craft'].includes(mode)) return false;
       const config = run?.config || settingsFromUI();
       if (!config || !config.target) return false;
       const selected = targets().find(target => target.key === config.target);
@@ -722,6 +735,7 @@
         ...runProgress(run),
         targetName: selected?.name || config.target, character: characterName(), zone: mode === 'arena' ? arenaZone() : '',
         raidId: run?.raidId || raidState()?.id || '', raidsCompleted: run?.raidsCompleted || 0,
+        raidCounts: run?.raidCounts || [], raidSkipped: run?.raidSkipped || [],
         deadline: run?.deadline ?? Date.now() + config.minutes * 60000, finishReason: run?.finishReason || '',
         canResume: !pending, restoreRequested: false, verification: false, steps: 0 };
       if (!validCheckpoint(checkpoint)) {
@@ -835,13 +849,47 @@
       });
     }
 
+    function raidCatalogTargets() {
+      const heading = Array.from(document.querySelectorAll('section.content h2')).find(h => h.textContent.trim() === 'Summon a Boss');
+      if (!heading) return null;
+      const entries = Array.from((heading.closest('.card') || heading.parentElement).querySelectorAll('.card h3')).map(heading => {
+        const name = heading.textContent.trim().replace(/\s+/g, ' ');
+        const button = Array.from(heading.closest('.card').querySelectorAll('form button[type="submit"]'))
+          .find(button => button.textContent.trim().toLowerCase() === 'summon');
+        return { name, form: button?.closest('form'), button };
+      });
+      return entries.length && entries.every(entry => entry.name && entry.name.length <= 200)
+        && new Set(entries.map(entry => entry.name.toLowerCase())).size === entries.length ? entries : null;
+    }
+
     function raidSummonTarget(name) {
-      const expected = name.replace(/\s+/g, ' ').toLowerCase();
-      const heading = Array.from(document.querySelectorAll('section.content .card h3'))
-        .find(heading => heading.textContent.trim().replace(/\s+/g, ' ').toLowerCase() === expected);
-      const button = Array.from(heading?.closest('.card')?.querySelectorAll('form button[type="submit"]') || [])
-        .find(button => button.textContent.trim().toLowerCase() === 'summon');
-      return button ? { name, form: button.closest('form'), button } : null;
+      const target = raidCatalogTargets()?.find(entry => entry.name.toLowerCase() === name.replace(/\s+/g, ' ').toLowerCase());
+      return target?.button ? target : null;
+    }
+
+    function dailyRaidLimit(name, flashes = document.querySelectorAll('#flash-stack .flash, section.content .card p')) {
+      const pattern = new RegExp(`^(?:✓\\s*)?You['’]ve already defeated ${escapeRegExp(name)} [\\d,]+ times today\\s*[—–-]\\s*it will return tomorrow\\.`, 'i');
+      return Array.from(flashes).some(flash => pattern.test(flash.textContent.trim().replace(/\s+/g, ' ')));
+    }
+
+    function skipDailyRaid() {
+      if (!checkpoint.raidSkipped.includes(checkpoint.targetName)) checkpoint.raidSkipped.push(checkpoint.targetName);
+      Object.assign(checkpoint, { raidPhase: 'catalog', canResume: true, steps: 0 });
+      return writeCheckpoint();
+    }
+
+    function armRaidSummon(form) {
+      if (mode !== 'raid' || run?.active || checkpoint || questQueue || !ui.raidAll.checked) return;
+      const target = raidCatalogTargets()?.find(entry => entry.form === form && entry.button && !entry.button.disabled);
+      const config = settingsFromUI();
+      if (!target || !config || !characterName()) return;
+      config.target = target.name;
+      checkpoint = { version: 1, mode: 'raid', skill, config, ...runProgress(), raidsCompleted: 0, raidCounts: [], raidSkipped: [],
+        targetName: target.name, character: characterName(), zone: '', raidId: raidState()?.id || '', finishReason: '',
+        deadline: Date.now() + config.minutes * 60000, canResume: false, restoreRequested: true, verification: false, steps: 0, raidPhase: 'summon' };
+      if (!validCheckpoint(checkpoint) || !validForm(target, 'raid-summon')) { checkpoint = null; return; }
+      if (!writeCheckpoint()) { checkpoint = null; return; }
+      ownNavigation = true;
     }
 
     function gatheringTargets(page = document, activitySkill = skill) {
@@ -862,7 +910,107 @@
         });
     }
 
+    function craftingTargets(page = document) {
+      if (!CRAFT_SKILLS.has(skill)) return [];
+      return Array.from(page.querySelectorAll(`[data-fold-group="craft-${skill}"] [data-fold]`)).flatMap(card => {
+        if (!card.dataset.fold || !card.dataset.foldName) return [];
+        const form = card.querySelector('form[data-ajax]');
+        const input = form?.querySelector('input[type="number"][name="times"]');
+        const button = form?.querySelector('button[type="submit"]');
+        const needs = Array.from(card.querySelectorAll('p')).find(p => /^Needs:/.test(p.textContent.trim()));
+        const materials = Array.from(needs?.querySelectorAll('span') || []).map(span => {
+          const match = span.textContent.trim().match(/^([\d,]+)×\s*(.+)\s+\(([\d,]+)\)$/);
+          return match && { amount: numberFrom(match[1]), name: match[2].trim(), owned: numberFrom(match[3]) };
+        });
+        if (!materials.length || materials.some(item => !item || !(item.amount > 0) || item.owned === null)
+          || new Set(materials.map(item => item.name)).size !== materials.length) return [];
+        const maximum = Math.min(...materials.map(item => Math.floor(item.owned / item.amount)));
+        const cap = input ? numberFrom(input.max) : 0;
+        return [{ key: card.dataset.fold, name: card.dataset.foldName || '', form, button, input, materials, maximum,
+          batch: cap > 0 ? Math.min(1000, cap, maximum) : 0, available: Boolean(button && input && maximum > 0), cost: 0 }];
+      });
+    }
+
+    async function prepareCraftHero() {
+      const attempt = generation;
+      starting = true;
+      render();
+      try {
+        const hero = await identifyTaskHero();
+        if (attempt !== generation) return false;
+        taskHero = hero;
+        return true;
+      } catch (error) {
+        if (attempt === generation) stop(`Could not identify the crafting hero: ${error.message}`);
+        return false;
+      } finally {
+        if (attempt === generation) { starting = false; render(); }
+      }
+    }
+
+    function nonogramPuzzle() {
+      const form = document.getElementById('clue-form');
+      if (form?.closest('.card')?.querySelector('h3 span')?.textContent.trim() !== 'Nonogram') return null;
+      if (!isShown(form)) return null;
+      const cells = Array.from(form.querySelectorAll('button.nono'));
+      const size = Math.sqrt(cells.length);
+      const output = form.querySelector('#nono-cells');
+      if (!Number.isInteger(size) || size < 1 || size > 10 || !output || !new RegExp(`^[01]{${cells.length}}$`).test(output.value)
+        || cells.some((cell, index) => cell.dataset.i !== String(index) || cell.disabled)) return null;
+      const grid = cells[0].parentElement;
+      if (grid.children.length !== (size + 1) ** 2) return null;
+      const runs = node => {
+        const copy = node.cloneNode(true);
+        copy.querySelectorAll('br').forEach(br => br.replaceWith(' '));
+        const text = copy.textContent.trim();
+        if (!/^\d+(?:\s+\d+)*$/.test(text)) return null;
+        const result = text.split(/\s+/).map(Number);
+        return result.length === 1 && result[0] === 0 ? [] : result.every(n => n > 0 && n <= size) ? result : null;
+      };
+      const columns = Array.from({ length: size }, (_, i) => runs(grid.children[i + 1]));
+      const rows = Array.from({ length: size }, (_, i) => runs(grid.children[(size + 1) * (i + 1)]));
+      return rows.every(Boolean) && columns.every(Boolean) ? { form, cells, output, rows, columns } : null;
+    }
+
+    function solveNonogram(rows, columns) {
+      const size = rows.length;
+      const patterns = hints => Array.from({ length: 2 ** size }, (_, mask) => mask.toString(2).padStart(size, '0'))
+        .filter(bits => JSON.stringify((bits.match(/1+/g) || []).map(run => run.length)) === JSON.stringify(hints));
+      const choices = rows.map(patterns);
+      const solutions = [];
+      let work = 0;
+      function search(board, possibleColumns) {
+        if (++work > 100000 || solutions.length > 1) return;
+        if (board.length === size) { solutions.push(board.join('')); return; }
+        for (const bits of choices[board.length]) {
+          const next = possibleColumns.map((patterns, col) => patterns.filter(pattern => pattern[board.length] === bits[col]));
+          if (next.every(patterns => patterns.length)) search([...board, bits], next);
+          if (work > 100000 || solutions.length > 1) break;
+        }
+      }
+      search([], columns.map(patterns));
+      return work <= 100000 && solutions.length === 1 ? solutions[0] : null;
+    }
+
+    function fillNonogram() {
+      const puzzle = nonogramPuzzle();
+      if (!puzzle) return status('This clue type or board is unsupported. Use the game’s controls.');
+      void holdGameLock(() => {
+        try {
+          const answer = solveNonogram(puzzle.rows, puzzle.columns);
+          if (!answer) return status('No unique nonogram solution was found within the solver limit. Nothing was changed.');
+          for (let i = 0; i < answer.length; i += 1) {
+            if (!puzzle.form.isConnected) return status('The clue changed while filling. Inspect the current trail.');
+            if (puzzle.output.value[i] !== answer[i]) puzzle.cells[i].click();
+          }
+          status(puzzle.output.value === answer ? 'Solution filled. Use the game’s Submit answer button.' : 'The puzzle controls did not accept the solution. Inspect the board.');
+        } finally { unlockIfIdle(); }
+      });
+    }
+
     function targets() {
+      if (mode === 'clue') return [{ key: 'current', name: 'Current nonogram', available: Boolean(nonogramPuzzle()) }];
+      if (mode === 'craft') return craftingTargets();
       if (mode === 'diary') return (diaryBoard()?.zones || []).map(zone => ({ key: zone.name, name: zone.name, available: !zone.locked }));
       if (mode === 'slayer') return [{ key: 'auto', name: 'Automatically repeat Slayer tasks', available: true }];
       if (mode === 'quest') return [{ key: 'auto', name: 'Automatically work through eligible quests', available: true }];
@@ -1730,6 +1878,8 @@
       ui.stats.textContent = `${progress?.completed || 0} confirmed actions · ${progress?.eaten || 0} food eaten · Energy ${vitals ? `${vitals.current}/${vitals.maximum}` : 'unavailable'}${hp ? ` · HP ${hp.current}/${hp.maximum}` : ''}${mode === 'arena' ? ` · ${progress?.wins || 0} wins` : ''}`;
       if (progress?.drunk || progress?.config?.potions?.length) ui.stats.textContent += ` · ${progress.drunk || 0} potions drunk`;
       if (mode === 'raid') ui.stats.textContent += ` · ${progress?.raidsCompleted || 0} raids completed`;
+      if (mode === 'craft') ui.stats.textContent = `${progress?.completed || 0} confirmed crafting batches`;
+      ui.stats.hidden = mode === 'clue';
       const busy = starting || restoring || Boolean(run?.active) || Boolean(pending) || Boolean(questNavigationDeadline) || Boolean(potionRead);
       const guard = humanCheck();
       checkSounds?.update(guard.required);
@@ -1742,6 +1892,11 @@
       ui['battle-settings'].hidden = mode !== 'arena' && !onTaskBoard;
       ui['quest-settings'].hidden = mode !== 'quest';
       ui['raid-settings'].hidden = mode !== 'raid';
+      ui.maxRaids.parentElement.firstChild.textContent = ui.raidAll.checked ? 'Raids per boss' : 'Maximum raids';
+      ui['food-settings'].hidden = ['craft', 'clue'].includes(mode);
+      ui['limits-settings'].hidden = mode === 'clue';
+      ui['recovery-settings'].hidden = mode === 'clue';
+      ui.start.textContent = mode === 'clue' ? 'Fill solution' : mode === 'craft' ? 'Craft all' : 'Start';
       ui['diary-settings'].hidden = mode !== 'diary';
       ui['quest-progress'].hidden = !questQueue && !questError;
       ui['quest-resume'].disabled = busy || guard.required || !questQueue || (questQueue.uncertain && !questQueue.command) || Boolean(questError);
@@ -1892,8 +2047,10 @@
       if (starting || restoring || run?.active || pending || potionRead || mode === 'hall') return;
       if (humanCheck().required) return status('Complete the game’s human verification yourself before starting.');
       if ((checkpoint || checkpointError) && !savedRun) return status('Use Restore & resume or discard the saved run before starting.');
+      if (mode === 'clue') return fillNonogram();
       const config = savedRun ? { ...DEFAULTS, ...savedRun.config } : settingsFromUI();
       if (!config || (!targets().some(target => target.key === config.target && target.available) && !endedSavedRaid(savedRun))) return;
+      if (mode === 'craft' && (!savedRun || !taskHero) && !await prepareCraftHero()) return;
       await holdGameLock(() => {
         try {
           if (!savedRun) saveSettings(config);
@@ -1906,6 +2063,7 @@
         }
         run = { active: true, config, ...runProgress(savedRun),
           raidsCompleted: savedRun?.raidsCompleted || 0, raidId: savedRun?.raidId || raidState()?.id,
+          raidCounts: savedRun?.raidCounts || [], raidSkipped: savedRun?.raidSkipped || [],
           finishReason: savedRun?.finishReason || '', deadline: savedRun?.deadline ?? Date.now() + config.minutes * 60000,
           blockedAt: null };
         tick();
@@ -1946,6 +2104,7 @@
     async function restoreSavedRun() {
       if (!checkpoint || checkpointError || starting || restoring || run?.active || pending) return;
       if (humanCheck().required) return pauseForVerification();
+      if (mode === 'craft' && !taskHero && !await prepareCraftHero()) return;
       if (checkpoint.character && characterName() !== checkpoint.character) {
         checkpoint.restoreRequested = false;
         writeCheckpoint();
@@ -1960,7 +2119,7 @@
         return status('Could not restore the activity after three page changes. Return to it manually or discard the saved run.');
       }
       if (mode === 'raid' && checkpoint.raidPhase) return void restoreRaidLoop();
-      const wrongPage = mode !== checkpoint.mode || (mode === 'gather' && skill !== checkpoint.skill)
+      const wrongPage = mode !== checkpoint.mode || (['gather', 'craft'].includes(mode) && skill !== checkpoint.skill)
         || (mode === 'raid' && new URLSearchParams(location.search).get('id') !== checkpoint.raidId);
       if (wrongPage) {
         await beginRestore(() => {
@@ -1975,6 +2134,11 @@
         if (!travel || !validForm(travel, 'travel')) return status(`The saved area (${checkpoint.zone}) is unavailable. Restore it using the game’s travel controls.`);
         await beginRestore(() => send(travel, 'travel'));
         return;
+      }
+      if (mode === 'craft' && checkpoint.canResume && craftingTargets().find(target => target.key === checkpoint.config.target)?.maximum === 0) {
+        run = { ...checkpoint, active: false, finishReason: 'All craftable materials used.' };
+        if (!clearCheckpoint()) return status(checkpointError);
+        return status(run.finishReason);
       }
       const selected = targets().find(target => target.key === checkpoint.config.target && target.available);
       if ((!selected && !endedSavedRaid(checkpoint)) || (mode === 'raid' && raidState()?.id !== checkpoint.raidId)) {
@@ -2002,7 +2166,7 @@
     function raidRepeatLimit(value) {
       if (Date.now() >= value.deadline) return 'Time limit reached.';
       if (value.completed >= value.config.actions) return 'Action limit reached.';
-      if ((value.raidsCompleted || 0) >= (value.config.maxRaids || 1)) return 'Raid limit reached.';
+      if (!value.config.raidAll && (value.raidsCompleted || 0) >= (value.config.maxRaids || 1)) return 'Raid limit reached.';
       return '';
     }
 
@@ -2017,7 +2181,7 @@
       ownNavigation = true;
       restoreDeadline = Date.now() + RESPONSE_TIMEOUT_MS;
       link.click();
-      status(`Raid complete. Returning to summon ${checkpoint.targetName} again…`);
+      status(checkpoint.config.raidAll ? 'Raid complete. Checking the next available boss…' : `Raid complete. Returning to summon ${checkpoint.targetName} again…`);
       schedule();
     }
 
@@ -2027,6 +2191,10 @@
       const hp = health();
       if (!hp || hp.current === 0) return stop('Cannot continue raids without a living hero and readable HP.');
       if (checkpoint.raidPhase === 'summon') {
+        if (checkpoint.config.raidAll && dailyRaidLimit(checkpoint.targetName)) {
+          if (!skipDailyRaid()) return stop(checkpointError);
+          return void restoreRaidLoop();
+        }
         const boss = raidState();
         if (!boss || boss.name !== checkpoint.targetName || boss.id === checkpoint.raidId
           || !/^\d{1,30}$/.test(boss.id) || !(boss.hp > 0) || boss.state !== 'active' || !boss.button) {
@@ -2048,6 +2216,19 @@
         return void beginRestore(() => link.click());
       }
       if (checkpoint.config.autoHeal && hp.current < hp.maximum) return stop('Heal using the game’s controls before resuming the raid summon.');
+      if (checkpoint.config.raidAll) {
+        const catalog = raidCatalogTargets();
+        if (!catalog) return stop('Cannot read the raid catalogue. No summon was sent.');
+        for (const entry of catalog) if (dailyRaidLimit(entry.name) && !checkpoint.raidSkipped.includes(entry.name)) checkpoint.raidSkipped.push(entry.name);
+        const eligible = catalog.filter(entry => entry.button && !entry.button.disabled
+          && !checkpoint.raidSkipped.includes(entry.name)
+          && (checkpoint.raidCounts.find(count => count.name.toLowerCase() === entry.name.toLowerCase())?.completed || 0) < checkpoint.config.maxRaids);
+        const next = eligible.find(entry => entry.name.toLowerCase() === checkpoint.targetName.toLowerCase()) || eligible[0];
+        if (!next) return stop('All available bosses are complete or unavailable for today.');
+        checkpoint.targetName = next.name;
+        checkpoint.config.target = next.name;
+        if (!writeCheckpoint()) return stop(checkpointError);
+      }
       const target = raidSummonTarget(checkpoint.targetName);
       if (!target || target.button.disabled) return stop(`The summon for ${checkpoint.targetName} is unavailable. No different boss was selected.`);
       if (!validForm(target, 'raid-summon')) return stop('The raid summon form changed. No summon was sent.');
@@ -2108,6 +2289,12 @@
         return destination.pathname === '/gather.php'
           && hasFields('node', 'skill', 'action', 'csrf');
       }
+      if (kind === 'craft') {
+        return mode === 'craft' && destination.pathname === '/craft.php' && target.form.hasAttribute('data-ajax')
+          && target.input?.form === target.form && target.input.name === 'times'
+          && hasFields('csrf', 'action', 'skill', 'recipe_id') && target.button.form === target.form
+          && target.batch > 0 && target.batch <= 1000 && target.batch <= Number(target.input.max);
+      }
       if (kind === 'engage' || kind === 'strike') {
         return mode === 'arena' && destination.pathname === '/arena.php' && target.form.hasAttribute('data-ajax')
           && hasFields('csrf', 'action', ...(kind === 'engage' ? ['monster_id'] : []))
@@ -2151,7 +2338,13 @@
         target.select.value = target.selected.value;
         target.select.dispatchEvent(new Event('change', { bubbles: true }));
       }
+      if (kind === 'craft') {
+        target.input.value = String(target.batch);
+        target.input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       pending = { kind, name: target.name, purpose: target.purpose, stat: target.stat, boost: target.boost,
+        recipe: kind === 'craft' ? target.key : null, materials: target.materials, batch: target.batch,
+        raidAll: kind === 'raid-summon' && checkpoint.config.raidAll,
         hero: characterName(), raidDamage: kind === 'raid' ? raidPersonalDamage() : null,
         previousRaidId: kind === 'raid-summon' ? checkpoint.raidId : null,
         form: target.form, log: arenaState().log, xp: document.getElementById('hud-xp')?.textContent,
@@ -2183,7 +2376,7 @@
         stop('The game did not accept the button click. No automatic retry was made.');
         return;
       }
-      const verb = { eat: 'Eating', drink: 'Drinking', gather: 'Gathering', engage: 'Engaging', strike: 'Attacking', raid: 'Attacking', 'raid-summon': 'Summoning', travel: 'Returning to', 'quest-accept': 'Accepting', 'quest-claim': 'Turning in' }[kind];
+      const verb = { eat: 'Eating', drink: 'Drinking', gather: 'Gathering', craft: 'Crafting', engage: 'Engaging', strike: 'Attacking', raid: 'Attacking', 'raid-summon': 'Summoning', travel: 'Returning to', 'quest-accept': 'Accepting', 'quest-claim': 'Turning in' }[kind];
       status(`${verb} ${target.name}; waiting for the game…`);
       schedule();
     }
@@ -2281,6 +2474,17 @@
         return;
       }
       if (questRead) { schedule(); return; }
+      if (mode === 'craft') {
+        updateFinishReason();
+        if (run.finishReason) return stop(run.finishReason);
+        const target = craftingTargets().find(item => item.key === run.config.target);
+        if (!target) return stop('The crafting recipe or material counts changed. No batch was sent.');
+        if (target.maximum === 0) return stop('All craftable materials used.');
+        if (!target.available || !target.batch) return stop('The selected recipe is locked or its batch control is unavailable.');
+        if (now < run.nextAt) { status('Waiting before the next crafting batch.'); schedule(); return; }
+        if (!waitForButton(target.button, now)) send(target, 'craft');
+        return;
+      }
       const hp = health();
       if (!hp) return stop('Cannot read HP. No action was sent.');
       if (hp.current === 0) return stop('The hero was defeated.');
@@ -2290,7 +2494,7 @@
       if (run.config.autoHeal && hp.current < hp.maximum) return recover(hp, now, 'hp');
       if (questObjectiveFinished()) return navigateQuest('board');
       if (needsQuestProgressCheck()) return void checkQuestProgress();
-      if (mode === 'raid' && run.finishReason === 'Boss defeated.' && run.config.maxRaids > 1) {
+      if (mode === 'raid' && run.finishReason === 'Boss defeated.' && (run.config.raidAll || run.config.maxRaids > 1)) {
         const limit = raidRepeatLimit(run);
         if (limit) return stop(limit);
         if (now < run.nextAt) { schedule(); return; }
@@ -2321,6 +2525,12 @@
     }
 
     function confirmResult(prior, flashes, page = document) {
+      if (prior.kind === 'craft') {
+        const recipe = craftingTargets(page).find(item => item.key === prior.recipe && item.name === prior.name);
+        return Boolean(recipe && prior.materials?.length && recipe.materials.length === prior.materials.length
+          && prior.materials.every(before => recipe.materials.some(after => after.name === before.name
+            && after.amount === before.amount && after.owned === before.owned - prior.batch * before.amount)));
+      }
       if (prior.kind === 'raid-summon') {
         const boss = raidState(page);
         return Boolean(boss && boss.name === prior.name && /^\d{1,30}$/.test(boss.id) && boss.id !== prior.previousRaidId
@@ -2406,10 +2616,12 @@
         const destination = new URL(response.url);
         if (destination.origin !== location.origin || destination.pathname !== location.pathname) throw new Error('The server returned a different page.');
         if ((mode === 'raid' && destination.searchParams.get('id') !== run.raidId)
-          || (mode === 'gather' && (destination.searchParams.get('skill') || 'mining') !== skill)) throw new Error('The server returned a different activity.');
+          || (['gather', 'craft'].includes(mode) && (destination.searchParams.get('skill') || (mode === 'craft' ? 'fletching' : 'mining')) !== skill)) throw new Error('The server returned a different activity.');
         const page = new DOMParser().parseFromString(await response.text(), 'text/html');
         if (!current()) return;
-        if (!characterName() || characterName(page) !== characterName()) throw new Error('The active hero could not be verified.');
+        const hero = mode === 'craft' ? await identifyTaskHero() : characterName(page);
+        if (!current()) return;
+        if (!characterName() || hero !== characterName()) throw new Error('The active hero could not be verified.');
         const guard = humanCheckLink(page);
         if (guard) {
           serverGuardLink = guard;
@@ -2438,13 +2650,12 @@
     }
 
     function reloadConfirmedResult(prior, page) {
-      if (!health(page)) return stop('Automatic recovery found a result but could not read HP. No further action was sent.');
-      if (health(page).current === 0) return stop('The hero was defeated. No further action was sent.');
+      if (mode !== 'craft' && !health(page)) return stop('Automatic recovery found a result but could not read HP. No further action was sent.');
+      if (mode !== 'craft' && health(page).current === 0) return stop('The hero was defeated. No further action was sent.');
       if (!rememberActivity()) return stop(checkpointError || 'Could not save the exact activity for automatic recovery.');
       countConfirmedAction(checkpoint, prior.kind, page);
       if (mode === 'raid' && raidState(page)?.hp === 0) {
-        if (checkpoint.finishReason !== 'Boss defeated.') checkpoint.raidsCompleted += 1;
-        checkpoint.finishReason = 'Boss defeated.';
+        if (checkpoint.finishReason !== 'Boss defeated.') markRaidDefeated(checkpoint);
       } else if (mode === 'arena' && checkpoint.wins >= checkpoint.config.battles) checkpoint.finishReason = 'Arena win limit reached.';
       else if (checkpoint.completed >= checkpoint.config.actions) checkpoint.finishReason = 'Action limit reached.';
       checkpoint.recoveries += 1;
@@ -2484,6 +2695,16 @@
       }
       const prior = pending;
       const flashes = freshFlashes(prior);
+      if (prior.kind === 'raid-summon' && prior.raidAll && dailyRaidLimit(prior.name, flashes)) {
+        pending = null;
+        restoring = false;
+        ownNavigation = false;
+        clearTimeout(timer);
+        unlockIfIdle();
+        if (!checkpoint) return status('Stopped. The daily raid limit was confirmed.');
+        if (!skipDailyRaid()) return stop(checkpointError);
+        return status(checkpoint.restoreRequested ? 'Daily boss limit confirmed. Checking the next boss…' : 'Daily boss limit confirmed. The run remains stopped.');
+      }
       const failure = flashes.find(flash => !flash.classList.contains('flash-ok'));
       const guardFailure = humanCheck().required && failure
         && /quick check needed|confirm you are human|human (?:check|verification)/i.test(failure.textContent);
@@ -2554,6 +2775,7 @@
         status('Stopped. The last sent action completed.');
         return;
       }
+      if (mode === 'craft') { tick(); return; }
       if (questQueue && mode === 'quest') {
         schedule();
         status('Quest request confirmed. Checking the next objective.');
@@ -2582,10 +2804,19 @@
     function updateFinishReason() {
       if (!run || run.finishReason) return;
       if (mode === 'raid' && raidState()?.id === run.raidId && raidState()?.hp === 0) {
-        run.raidsCompleted += 1;
-        run.finishReason = 'Boss defeated.';
+        markRaidDefeated(run);
       } else if (mode === 'arena' && run.wins >= run.config.battles) run.finishReason = 'Arena win limit reached.';
       else if (run.completed >= run.config.actions) run.finishReason = 'Action limit reached.';
+    }
+
+    function markRaidDefeated(progress) {
+      progress.raidsCompleted += 1;
+      if (progress.config.raidAll) {
+        let entry = progress.raidCounts.find(entry => entry.name.toLowerCase() === progress.config.target.toLowerCase());
+        if (!entry) { entry = { name: progress.config.target, completed: 0 }; progress.raidCounts.push(entry); }
+        entry.completed += 1;
+      }
+      progress.finishReason = 'Boss defeated.';
     }
 
     let saved = DEFAULTS;
@@ -2611,11 +2842,14 @@
         saveQuestQueue();
       }
     } catch (error) { questError = `Could not read the quest queue: ${error.message}`; }
-    const targetLabel = { gather: 'Resource', arena: 'Enemy', raid: 'Boss', quest: 'Quest selection', slayer: 'Slayer tasks', diary: 'Area', hall: 'Target' }[mode];
+    const targetLabel = { gather: 'Resource', arena: 'Enemy', raid: 'Boss', craft: 'Recipe', clue: 'Puzzle', quest: 'Quest selection', slayer: 'Slayer tasks', diary: 'Area', hall: 'Target' }[mode];
     ui['target-label'].textContent = targetLabel;
     ui.target.setAttribute('aria-label', targetLabel);
     if (mode === 'hall') message = 'Choose an activity above.';
     else if (!ui.target.value) message = mode === 'gather' ? 'No unlocked gathering actions. Choose another skill or meet its level requirement.' : 'Choose a target using the game’s controls first.';
+    if (mode === 'craft' && ui.target.value) message = 'Ready. Choose a recipe and press Craft all.';
+    if (mode === 'clue') message = nonogramPuzzle() ? 'Ready. Use Fill solution to paint the current nonogram.'
+      : 'The clue helper supports nonograms up to 10×10. Other trail steps remain manual.';
     if (!navigator.locks?.request) message = 'Web Locks are unavailable. A browser with Web Locks support is required.';
     if (humanCheck().required) message = 'Complete the game’s human check yourself before restoring or starting an activity.';
     else if (checkpoint) message = 'Saved activity ready. Use its Restore control or discard it to begin a new run.';
@@ -2654,7 +2888,15 @@
         stop('Manual action paused while a game response is pending.');
         return;
       }
+      if (mode === 'raid' && !run?.active && !starting && !checkpoint && !questQueue && ui.raidAll.checked
+        && event.target === raidState()?.form) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        Promise.resolve().then(() => start());
+        return;
+      }
       if (run?.active || starting) stop('Stopped for a manual game action.');
+      armRaidSummon(event.target);
     }, true);
     document.addEventListener('click', event => {
       if (event.isTrusted && !event.composedPath().some(node => node === ui.testSound || node === ui.alertSound)) void checkSounds.arm();

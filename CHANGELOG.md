@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.11.0 — 2026-10-25
+
+- Add opt-in all-boss raid cycles with an adjustable per-boss completion goal. Native Summon/first Attack can start the cycle; confirmed defeats retain cumulative budgets and move through available bosses. Skip named daily-limit responses and unavailable controls; stop when no eligible bosses remain. Preserve existing single-boss settings and unknown-request safeguards.
+- Add Workshop Craft all for native batches up to 1,000 recipe operations. Re-read ingredient ratios and form limits, confirm exact material consumption, and keep the same recipe through manual-verification return and confirmed lost-response recovery. Use shared action/time/lock limits and the existing hero lookup.
+- Add a bounded unique-solution nonogram helper for Clue Trails. Fill through native cell clicks and leave submission, other puzzle types, deeds, scrolls, and caskets manual. An observed live nonogram solution was accepted and advanced the trail to its deed step.
+- Add 23 regression cases and local browser scenarios for daily raid exhaustion, cumulative healing/potions, 10,000-item crafting, and nonogram filling. All 396 tests pass. Live forms and a single-item craft were inspected; unattended live userscript execution remains unverified.
+
 ## 1.10.1 — 2026-10-21
 
 - Try the game's native **I'm human — Continue** button once during a confirmed saved-run verification handoff, then retain exact-activity restoration and cumulative budgets across all modes. Preserve native verification handlers; additional Google challenges remain manual.
