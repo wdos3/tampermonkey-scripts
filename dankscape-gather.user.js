@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.11.0
+// @version      1.12.0
 // @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
-// @description  Gathering, bulk crafting, combat, raid cycles, tasks, and nonogram help with food, potions, and recovery.
+// @description  Gathering, crafting, combat, raids, tasks, and Clue Trails with food, potions, and recovery.
 // @match        https://dankscape.com/*
 // @run-at       document-idle
 // @sandbox      DOM
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.11.0';
+  const VERSION = '1.12.0';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -275,23 +275,25 @@
     const POTION_STATS = { combat: 'Combat', attack: 'Attack', strength: 'Strength', defense: 'Defence', ranged: 'Ranged', magic: 'Magic' };
     const COMBAT_STATS = ['attack', 'strength', 'defense'];
     const DIARY_TIERS = ['Easy', 'Medium', 'Hard', 'Extreme', 'Legendary', 'Insane'];
-    const TASK_BOARDS = { quest: '/quests.php', slayer: '/slayer.php', diary: '/diaries.php' };
+    const TASK_BOARDS = { quest: '/quests.php', slayer: '/slayer.php', diary: '/diaries.php', clue: '/clue.php' };
     const NUMBER_SETTINGS = {
       interval: { label: 'Delay after result (s)', value: 0.1, min: 0.1, max: 3600, step: 0.1 },
       reserve: { label: 'Keep this much energy', value: 0, min: 0, max: 1000000 },
       actions: { label: 'Maximum actions', value: 100, min: 1, max: 1000000 },
       minutes: { label: 'Maximum minutes', value: 30, min: 1, max: 1440 },
       meals: { label: 'Maximum food items per run', value: 100, min: 1, max: 1000000 },
-      battles: { label: 'Maximum arena wins', value: 100, min: 1, max: 1000000, modes: ['arena', 'quest', 'slayer', 'diary'] },
+      battles: { label: 'Maximum arena wins', value: 100, min: 1, max: 1000000, modes: ['arena', 'quest', 'slayer', 'diary', 'clue'] },
       quests: { label: 'Maximum quests', value: 20, min: 1, max: 1000, modes: ['quest'], optional: true },
-      drinks: { label: 'Maximum potions per run', value: 100, min: 1, max: 1000000, modes: ['arena', 'raid', 'quest', 'slayer', 'diary'], optional: true },
+      drinks: { label: 'Maximum potions per run', value: 100, min: 1, max: 1000000, modes: ['arena', 'raid', 'quest', 'slayer', 'diary', 'clue'], optional: true },
       maxRaids: { label: 'Maximum raids', value: 1, min: 1, max: 1000000, modes: ['raid'], optional: true },
+      trails: { label: 'Maximum clue trails', value: 1, min: 1, max: 1000, modes: ['clue'], optional: true },
+      clueGold: { label: 'Merchant deed gold budget', value: 1000, min: 0, max: 1000000, modes: ['clue'], optional: true },
     };
     const CHECK_SETTINGS = ['autoEat', 'autoHeal', 'autoRecover', 'wait', 'raidAll'];
     const DEFAULTS = { target: '', ...Object.fromEntries(Object.entries(NUMBER_SETTINGS).map(([id, setting]) => [id, setting.value])),
       autoEat: true, autoHeal: true, autoRecover: true, food: '', wait: false, raidAll: false, potions: [], diaryTier: 'Easy' };
 
-    const mode = { '/gather.php': 'gather', '/arena.php': 'arena', '/raid.php': 'raid', '/craft.php': 'craft', '/clue.php': 'clue', '/quests.php': 'quest', '/slayer.php': 'slayer', '/diaries.php': 'diary' }[location.pathname] || 'hall';
+    const mode = { '/gather.php': 'gather', '/arena.php': 'arena', '/raid.php': 'raid', '/craft.php': 'craft', '/altar.php': 'altar', '/shop.php': 'shop', '/clue.php': 'clue', '/quests.php': 'quest', '/slayer.php': 'slayer', '/diaries.php': 'diary' }[location.pathname] || 'hall';
     const onTaskBoard = Object.hasOwn(TASK_BOARDS, mode);
     const skill = new URLSearchParams(location.search).get('skill') || (mode === 'craft' ? 'fletching' : 'mining');
     const settingsKey = `settings:${mode === 'gather' ? skill : mode === 'craft' ? `craft:${skill}` : mode}`;
@@ -316,6 +318,7 @@
     let questNavigationDeadline = 0;
     let questRead = null;
     let gatherCatalog = null;
+    let clueFoes = null;
     let potionCatalog = [];
     let potionRead = null;
     let taskHero = '';
@@ -387,6 +390,7 @@
         element('details', { id: 'limits-settings' }, [element('summary', {}, 'Run limits'),
           element('div', { class: 'grid' }, ['interval', 'reserve', 'actions', 'minutes'].map(numberSetting)), battleSettings,
           element('div', { id: 'quest-settings', hidden: '' }, [numberSetting('quests')]),
+          element('div', { id: 'clue-settings', hidden: '' }, [numberSetting('trails'), numberSetting('clueGold')]),
           element('div', { id: 'raid-settings', hidden: '' }, [numberSetting('maxRaids'),
             checkSetting('Cycle all available bosses; auto-start after I summon one', 'raidAll')])]),
         element('details', { id: 'food-settings' }, [element('summary', {}, 'Food & healing'),
@@ -623,7 +627,7 @@
       return page.querySelector('aside.sidebar h2')?.textContent.trim()
         || (page.querySelector('section.content h1')?.textContent.trim() === 'Quest Board'
           ? page.querySelector('section.content .card p.dim strong')?.textContent.trim() : '')
-        || (page === document && ['slayer', 'diary', 'craft'].includes(mode) ? taskHero : '') || '';
+        || (page === document && ['slayer', 'diary', 'craft', 'clue', 'altar', 'shop'].includes(mode) ? taskHero : '') || '';
     }
     function arenaZone(page = document) { return page.querySelector('section.content h1')?.textContent.trim() || ''; }
 
@@ -910,9 +914,9 @@
         });
     }
 
-    function craftingTargets(page = document) {
-      if (!CRAFT_SKILLS.has(skill)) return [];
-      return Array.from(page.querySelectorAll(`[data-fold-group="craft-${skill}"] [data-fold]`)).flatMap(card => {
+    function craftingTargets(page = document, activitySkill = skill) {
+      if (!CRAFT_SKILLS.has(activitySkill)) return [];
+      return Array.from(page.querySelectorAll(`[data-fold-group="craft-${activitySkill}"] [data-fold]`)).flatMap(card => {
         if (!card.dataset.fold || !card.dataset.foldName) return [];
         const form = card.querySelector('form[data-ajax]');
         const input = form?.querySelector('input[type="number"][name="times"]');
@@ -926,12 +930,14 @@
           || new Set(materials.map(item => item.name)).size !== materials.length) return [];
         const maximum = Math.min(...materials.map(item => Math.floor(item.owned / item.amount)));
         const cap = input ? numberFrom(input.max) : 0;
-        return [{ key: card.dataset.fold, name: card.dataset.foldName || '', form, button, input, materials, maximum,
+        const xp = numberFrom(Array.from(card.querySelectorAll('.stat-row')).find(row => row.firstElementChild?.textContent.trim() === 'XP')?.querySelector('strong')?.textContent.match(/[\d,]+/)?.[0]);
+        return [{ key: card.dataset.fold, name: card.dataset.foldName || '', form, button, input, materials, maximum, xp,
+          locked: /Locked\s*[—–-]\s*requires/i.test(card.textContent),
           batch: cap > 0 ? Math.min(1000, cap, maximum) : 0, available: Boolean(button && input && maximum > 0), cost: 0 }];
       });
     }
 
-    async function prepareCraftHero() {
+    async function prepareActivityHero() {
       const attempt = generation;
       starting = true;
       render();
@@ -941,7 +947,7 @@
         taskHero = hero;
         return true;
       } catch (error) {
-        if (attempt === generation) stop(`Could not identify the crafting hero: ${error.message}`);
+        if (attempt === generation) stop(`Could not identify the active hero: ${error.message}`);
         return false;
       } finally {
         if (attempt === generation) { starting = false; render(); }
@@ -992,24 +998,431 @@
       return work <= 100000 && solutions.length === 1 ? solutions[0] : null;
     }
 
-    function fillNonogram() {
-      const puzzle = nonogramPuzzle();
-      if (!puzzle) return status('This clue type or board is unsupported. Use the game’s controls.');
-      void holdGameLock(() => {
-        try {
-          const answer = solveNonogram(puzzle.rows, puzzle.columns);
-          if (!answer) return status('No unique nonogram solution was found within the solver limit. Nothing was changed.');
-          for (let i = 0; i < answer.length; i += 1) {
-            if (!puzzle.form.isConnected) return status('The clue changed while filling. Inspect the current trail.');
-            if (puzzle.output.value[i] !== answer[i]) puzzle.cells[i].click();
+    function solveSudoku(givens) {
+      if (givens.length !== 81 || givens.some(n => !Number.isInteger(n) || n < 0 || n > 9)) return null;
+      const board = givens.slice(), solutions = [];
+      const peers = Array.from({ length: 81 }, (_, i) => Array.from({ length: 81 }, (_, j) => j)
+        .filter(j => i !== j && (Math.floor(i / 9) === Math.floor(j / 9) || i % 9 === j % 9
+          || (Math.floor(i / 27) === Math.floor(j / 27) && Math.floor(i % 9 / 3) === Math.floor(j % 9 / 3)))));
+      if (board.some((n, i) => n && peers[i].some(j => board[j] === n))) return null;
+      let work = 0;
+      function search() {
+        if (++work > 100000 || solutions.length > 1) return;
+        let cell = -1, choices = [];
+        for (let i = 0; i < 81; i += 1) {
+          if (board[i]) continue;
+          const available = [1, 2, 3, 4, 5, 6, 7, 8, 9].filter(n => !peers[i].some(j => board[j] === n));
+          if (!available.length) return;
+          if (cell < 0 || available.length < choices.length) { cell = i; choices = available; }
+        }
+        if (cell < 0) { solutions.push(board.slice()); return; }
+        for (const n of choices) { board[cell] = n; search(); board[cell] = 0; if (solutions.length > 1 || work > 100000) break; }
+      }
+      search();
+      return work <= 100000 && solutions.length === 1 ? solutions[0] : null;
+    }
+
+    function solveSliding(initial) {
+      if (!/^[0-8]{9}$/.test(initial) || new Set(initial).size !== 9) return null;
+      const nodes = [{ state: initial, parent: -1, move: -1 }], seen = new Set([initial]);
+      for (let head = 0; head < nodes.length && head < 181440; head += 1) {
+        const { state } = nodes[head];
+        if (state === '123456780') {
+          const path = [];
+          for (let n = head; nodes[n].parent >= 0; n = nodes[n].parent) path.push(nodes[n].move);
+          return path.reverse();
+        }
+        const blank = state.indexOf('0');
+        const adjacent = [blank - 3, blank + 3, blank - 1, blank + 1].filter(i => i >= 0 && i < 9
+          && (Math.abs(i - blank) === 3 || Math.floor(i / 3) === Math.floor(blank / 3)));
+        for (const move of adjacent) {
+          const tiles = state.split('');
+          [tiles[blank], tiles[move]] = [tiles[move], tiles[blank]];
+          const next = tiles.join('');
+          if (!seen.has(next)) { seen.add(next); nodes.push({ state: next, parent: head, move }); }
+        }
+      }
+      return null;
+    }
+
+    function setClueInput(input, value) {
+      if (!input || input.disabled || input.readOnly || input.type === 'hidden') throw new Error('A puzzle input is unavailable.');
+      input.value = String(value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      if (input.value !== String(value) || !input.checkValidity()) throw new Error('The native puzzle control rejected its value.');
+    }
+
+    function clueBoard(page = document) {
+      const content = page.querySelector('section.content');
+      if (!/Clue Trails/.test(content?.querySelector('h1,h2')?.textContent || '')) return null;
+      const starts = Array.from(content.querySelectorAll('button[type="submit"],button:not([type])')).flatMap(button => {
+        const match = button.textContent.trim().match(/^📜\s*Read an? (Easy|Medium|Hard) scroll$/i);
+        return match && button.form ? [{ tier: match[1].toLowerCase(), button }] : [];
+      });
+      const form = content.querySelector('#clue-form');
+      if (!form) return { starts, step: null };
+      const card = form.closest('.card'), heading = card?.querySelector('h3');
+      const match = heading?.textContent.trim().match(/^Current trail\s*\((Easy|Medium|Hard)\)\s*[—–-]\s*step\s*(\d+)\s*of\s*(\d+)\s*(.+)$/i);
+      const prompt = Array.from(card?.children || []).find(node => node.tagName === 'P')?.textContent.trim().replace(/^[“”"]|[“”"]$/g, '') || '';
+      if (!match || !prompt || Number(match[2]) < 1 || Number(match[2]) > Number(match[3]) || Number(match[3]) > 4) return null;
+      const type = match[4].trim(), index = Number(match[2]), total = Number(match[3]);
+      const progress = form.textContent.match(/Progress since this step began:\s*([\d,]+)\s*\/\s*([\d,]+)/i);
+      const step = { tier: match[1].toLowerCase(), index, total, type, prompt,
+        signature: JSON.stringify([match[1].toLowerCase(), index, total, type, prompt]), form,
+        button: form.querySelector('#clue-submit') || form.querySelector('button[type="submit"]'),
+        progress: progress ? numberFrom(progress[1]) : null, goal: progress ? numberFrom(progress[2]) : null };
+      return { starts, step };
+    }
+
+    function fillCluePuzzle(step) {
+      const { form, type, prompt } = step;
+      if (/^Nonogram$/i.test(type)) {
+        const puzzle = nonogramPuzzle();
+        const answer = puzzle && solveNonogram(puzzle.rows, puzzle.columns);
+        if (!answer) throw new Error('No unique nonogram solution was found within the solver limit.');
+        for (let i = 0; i < answer.length; i += 1) if (puzzle.output.value[i] !== answer[i]) puzzle.cells[i].click();
+        if (puzzle.output.value !== answer) throw new Error('The nonogram controls did not accept the solution.');
+      } else if (/^Sudoku$/i.test(type)) {
+        const cells = Array.from(form.querySelectorAll('#sudoku-grid input.sudoku-cell'));
+        if (cells.length !== 81 || cells.some((cell, i) => cell.name !== `cells[${i}]` || (cell.readOnly && !/^[1-9]$/.test(cell.value)))) throw new Error('The Sudoku grid changed.');
+        const answer = solveSudoku(cells.map(cell => cell.readOnly ? Number(cell.value) : 0));
+        if (!answer) throw new Error('No unique Sudoku solution was found within the solver limit.');
+        cells.forEach((cell, i) => { if (!cell.readOnly) setClueInput(cell, answer[i]); });
+      } else if (/^Sliding tiles$/i.test(type)) {
+        const grid = form.querySelector('#slide'), output = form.querySelector('#slide-moves');
+        if (!grid || !output || grid.querySelectorAll('button').length !== 9) throw new Error('The sliding grid changed.');
+        const initial = grid.getAttribute('data-tiles');
+        const path = solveSliding(initial);
+        if (!path) throw new Error('The sliding puzzle has no legal solution.');
+        if (output.value || Array.from(grid.querySelectorAll('button'), b => b.textContent.trim() || '0').join('') !== initial) {
+          const reset = form.querySelector('#slide-reset');
+          if (!reset) throw new Error('The edited sliding puzzle cannot be reset through its native control.');
+          const navigating = ownNavigation;
+          ownNavigation = true;
+          try { reset.click(); }
+          finally { ownNavigation = navigating; }
+        }
+        for (const i of path) grid.querySelectorAll('button')[i].click();
+        if (output.value !== path.join(',') || Array.from(grid.querySelectorAll('button'), b => b.textContent.trim() || '0').join('') !== '123456780') throw new Error('The sliding controls did not accept the solution.');
+      } else if (/Word search/i.test(type)) {
+        const grid = form.querySelector('#ws-grid'), cells = Array.from(grid?.querySelectorAll('.ws-cell') || []);
+        const words = grid?.getAttribute('data-words')?.split(',').filter(Boolean);
+        if (cells.length !== 100 || !words?.length || words.length > 100 || cells.some((cell, i) => cell.getAttribute('data-i') !== String(i))) throw new Error('The word search grid changed.');
+        const paths = words.map(word => {
+          if (!/^[A-Z]{1,10}$/.test(word)) return null;
+          for (let start = 0; start < 100; start += 1) for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+            const row = Math.floor(start / 10), col = start % 10, endRow = row + dr * (word.length - 1), endCol = col + dc * (word.length - 1);
+            if (endRow < 0 || endRow > 9 || endCol < 0 || endCol > 9) continue;
+            const indices = Array.from(word, (_, i) => (row + dr * i) * 10 + col + dc * i);
+            if (indices.map(i => cells[i].textContent.trim()).join('') === word) return [start, indices.at(-1)];
           }
-          status(puzzle.output.value === answer ? 'Solution filled. Use the game’s Submit answer button.' : 'The puzzle controls did not accept the solution. Inspect the board.');
-        } finally { unlockIfIdle(); }
+          return null;
+        });
+        if (paths.some(path => !path)) throw new Error('A listed word is absent from the grid.');
+        const selected = cells.find(cell => cell.classList.contains('sel'));
+        if (selected) selected.click();
+        words.forEach((word, i) => {
+          if (Array.from(form.querySelectorAll('.ws-word')).some(chip => chip.dataset.word === word && chip.classList.contains('done'))) return;
+          cells[paths[i][0]].click(); cells[paths[i][1]].click();
+        });
+        const found = form.querySelector('#ws-answer')?.value.split(/\s+/);
+        if (!words.every(word => found?.includes(word))) throw new Error('The word search controls did not accept the solution.');
+      } else if (/Treasurer.?s? Ledger/i.test(type)) {
+        const match = prompt.match(/A and B together hold\s*([\d,]+)\s*gold;\s*B and C together hold\s*([\d,]+);\s*A and C together hold\s*([\d,]+)/i);
+        if (!match) throw new Error('The ledger wording is unrecognized.');
+        const [ab, bc, ac] = match.slice(1).map(numberFrom), a = (ab + ac - bc) / 2;
+        const values = [a, ab - a, ac - a];
+        if (values.some(n => !Number.isSafeInteger(n) || n < 0)) throw new Error('The ledger sums are inconsistent.');
+        ['a', 'b', 'c'].forEach((name, i) => setClueInput(form.querySelector(`input[name="${name}"]`), values[i]));
+      } else if (/Anagram|Cipher|Riddle/i.test(type)) {
+        const answer = solveTextClue(step);
+        if (!answer) throw new Error('This text clue has no single verified answer.');
+        setClueInput(form.querySelector('input[name="answer"]'), answer);
+      } else throw new Error(`Unrecognized clue puzzle: ${type}.`);
+      if (!run?.active || !questQueue?.active) throw new Error('The clue run stopped while filling the puzzle.');
+      if (!form.isConnected || clueBoard()?.step?.signature !== step.signature || !step.button || step.button.disabled) throw new Error('The clue changed or its Submit control is unavailable.');
+    }
+
+    function solveTextClue(step) {
+      const normalize = text => text.toLowerCase().replace(/[^a-z]/g, '');
+      const candidates = clueFoes || [];
+      const level = step.prompt.match(/(?:level|lvl)\s*(\d+)/i)?.[1];
+      const length = step.prompt.match(/\((\d+)\s*letters\)/i)?.[1];
+      const allowed = candidates.filter(foe => (!level || foe.level === Number(level)) && (!length || normalize(foe.name).length === Number(length)));
+      let matches = [];
+      if (/Anagram/i.test(step.type)) {
+        const letters = Array.from(step.form.querySelectorAll('p')).map(p => p.textContent.trim()).find(text => /^[A-Z](?:\s+[A-Z]){2,}$/i.test(text));
+        const sorted = text => normalize(text).split('').sort().join('');
+        if (letters) matches = allowed.filter(foe => sorted(foe.name) === sorted(letters));
+      } else if (/Cipher/i.test(step.type)) {
+        const encoded = Array.from(step.form.querySelectorAll('p')).map(p => p.textContent.trim()).find(text => /^[A-Z][A-Z '\-]+$/.test(text));
+        if (encoded) {
+          const decoded = new Set();
+          for (let shift = 0; shift < 26; shift += 1) decoded.add(normalize(encoded.replace(/[A-Z]/g, c => String.fromCharCode(65 + (c.charCodeAt(0) - 65 + shift) % 26))));
+          matches = allowed.filter(foe => decoded.has(normalize(foe.name)));
+        }
+      } else {
+        // Riddles naming a foe can be resolved against the live Bestiary. Do not
+        // guess a semantic answer when more than one foe matches the visible hint.
+        matches = allowed.filter(foe => new RegExp(`\\b${escapeRegExp(foe.name)}\\b`, 'i').test(step.prompt));
+        if (!matches.length && level && length && allowed.length === 1) matches = allowed;
+      }
+      return matches.length === 1 ? matches[0].name : null;
+    }
+
+    function validClueQueue(value) {
+      const count = n => Number.isSafeInteger(n) && n >= 0 && n <= 1000000;
+      if (!count(value.trailsCompleted) || !count(value.goldSpent) || typeof value.clueSignature !== 'string' || value.clueSignature.length > 4000) return false;
+      if (value.clueSignature) {
+        let identity;
+        try { identity = JSON.parse(value.clueSignature); }
+        catch { return false; }
+        if (!Array.isArray(identity) || identity.length !== 5 || !['easy', 'medium', 'hard'].includes(identity[0])
+          || !Number.isInteger(identity[1]) || !Number.isInteger(identity[2]) || identity[1] < 1 || identity[1] > identity[2] || identity[2] > 4
+          || !identity.slice(3).every(text => typeof text === 'string' && text.length > 0)) return false;
+      }
+      if (value.command && (!['read', 'answer'].includes(value.command.kind) || typeof value.command.signature !== 'string'
+        || value.command.signature.length > 4000 || !['easy', 'medium', 'hard'].includes(value.command.tier)
+        || !count(value.command.index) || !count(value.command.total))) return false;
+      if (value.current === null) return true;
+      const current = value.current;
+      return Boolean(current && current.kind === 'deed' && ['arena', 'gather', 'craft', 'altar', 'shop'].includes(current.mode)
+        && ['name', 'target', 'skill', 'zone'].every(key => typeof current[key] === 'string' && current[key].length <= 500)
+        && ['goal', 'progress', 'stalled', 'unmeasured'].every(key => count(current[key])) && current.goal > 0
+        && typeof current.preparation === 'boolean' && (current.mode !== 'gather' || SKILLS.has(current.skill))
+        && (current.mode !== 'craft' || CRAFT_SKILLS.has(current.skill)));
+    }
+
+    function confirmClueCommand() {
+      const command = questQueue.command;
+      const board = clueBoard();
+      if (!board) return false;
+      const reward = Array.from(document.querySelectorAll('#flash-stack .flash-ok')).some(flash => /The trail ends at a buried casket:/i.test(flash.textContent));
+      if (!command) {
+        if (questQueue.uncertain) return false;
+        if (!questQueue.clueSignature || board.step?.signature === questQueue.clueSignature) return true;
+        const [tier, index, total] = JSON.parse(questQueue.clueSignature);
+        // Explicit Resume can continue after the user finishes an unsupported
+        // puzzle. A different trail or an unproven reward is never adopted.
+        if (board.step ? board.step.tier !== tier || board.step.total !== total || board.step.index <= index : !reward) return false;
+        if (!board.step) questQueue.trailsCompleted += 1;
+        questQueue.current = null;
+        questQueue.clueSignature = board.step?.signature || '';
+        return saveQuestQueue();
+      }
+      const confirmed = command.kind === 'read'
+        ? board.step?.tier === command.tier && board.step.index === 1
+        : board.step ? board.step.tier === command.tier && board.step.index === command.index + 1 && board.step.total === command.total
+          : command.index === command.total && reward;
+      if (!confirmed) return false;
+      if (command.kind === 'answer' && !board.step) questQueue.trailsCompleted += 1;
+      questQueue.completed += 1;
+      questQueue.current = null;
+      questQueue.clueSignature = board.step?.signature || '';
+      questQueue.uncertain = false;
+      delete questQueue.command;
+      questQueue.nextAt = Date.now() + questQueue.config.interval * 1000;
+      return saveQuestQueue();
+    }
+
+    function submitClueCommand(button, kind, step = null, tier = step?.tier) {
+      const target = { form: button?.form, button };
+      if (!validForm(target, 'clue')) return stop('The clue form changed. No request was sent.');
+      if (step) questQueue.clueSignature = step.signature;
+      questQueue.command = { kind, tier, index: step?.index || 0, total: step?.total || 0, signature: step?.signature || '' };
+      questQueue.uncertain = true;
+      navigateQuest('board', target);
+    }
+
+    function clueDeedRoute(prompt) {
+      const rules = [
+        [/\b(?:bones?|bury)\b|dead.*altar/i, 'altar', ''],
+        [/bind.*rune.*gem|\b(?:enchant|enchanting|sigil|inscribe)\b/i, 'craft', 'enchanting'],
+        [/\b(?:facet|facets|jeweller|gem-cutting)\b|cut.*gem|gem.*cut|polish.*stone/i, 'craft', 'jewelcrafting'],
+        [/\b(?:anvil|hammer|smithing|forge|smelt)\b|shape metal/i, 'craft', 'smithing'],
+        [/\b(?:notch|feather|shaft|fletching|bowstring)\b/i, 'craft', 'fletching'],
+        [/\b(?:cook|cooking|pan)\b|flame meets flesh/i, 'craft', 'cooking'],
+        [/\b(?:brew|alchemy|elixir|potion)\b/i, 'craft', 'alchemy'],
+        [/\b(?:fell|felling|trunk|woodcutting|chop)\b/i, 'gather', 'woodcutting'],
+        [/\b(?:pickaxe|vein|ore|mining|mine)\b/i, 'gather', 'mining'],
+        [/\b(?:fish|fishing|hook|cast|fins|net)\b/i, 'gather', 'fishing'],
+        [/\b(?:herb|herbs|herblore|pluck|leaves)\b/i, 'gather', 'herblore'],
+        [/\b(?:slay|slaying|arena|foe|foes|blood|monsters?)\b/i, 'arena', ''],
+        [/\b(?:merchant|trading|trade|buy|bargain)\b/i, 'shop', ''],
+      ];
+      const match = rules.find(([pattern]) => pattern.test(prompt));
+      return match ? { mode: match[1], skill: match[2] } : null;
+    }
+
+    async function readForClue(action) {
+      if (questRead) return;
+      const controller = new AbortController(), attempt = generation;
+      questRead = controller;
+      const timeout = setTimeout(() => controller.abort(), RECOVERY_FETCH_TIMEOUT_MS);
+      const active = () => attempt === generation && run?.active && questQueue?.source === 'clue' && questQueue.active;
+      const read = async path => {
+        const page = await fetchQuestPage(new URL(path, location.origin), controller.signal);
+        if (!active()) throw new Error('Clue read cancelled.');
+        const guard = humanCheckLink(page);
+        if (guard) { serverGuardLink = guard; throw new Error('The game requires a human check.'); }
+        const hero = characterName(page);
+        if (hero && hero !== questQueue.character) throw new Error('The active hero changed.');
+        return page;
+      };
+      try { await action(read); }
+      catch (error) {
+        if (active()) {
+          if (serverGuardLink) pauseForVerification();
+          else stop(`Clue Trails paused: ${controller.signal.aborted ? 'The progress read timed out.' : error.message}`);
+        }
+      } finally {
+        clearTimeout(timeout);
+        if (questRead === controller) questRead = null;
+        if (active()) schedule();
+      }
+    }
+
+    function tickClueBoard() {
+      if (questRead || Date.now() < run.nextAt) { schedule(); return; }
+      const board = clueBoard();
+      if (!board || taskHero !== questQueue.character) return stop('Cannot verify the clue board or active hero.');
+      if (questQueue.command || questQueue.uncertain) return stop('The last clue request is unconfirmed. Inspect the trail before resuming.');
+      if (questQueue.trailsCompleted >= (questQueue.config.trails ?? DEFAULTS.trails)) return stop('Clue trail limit reached. Rewards collected.');
+      const step = board.step;
+      if (step && /^Deed$/i.test(step.type) && step.goal > 0 && step.progress >= step.goal
+        && (!questQueue.clueSignature || questQueue.clueSignature === step.signature)) return submitClueCommand(step.button, 'answer', step);
+      const limit = questLimit();
+      if (limit) return stop(limit);
+      if (!step) {
+        const start = board.starts.find(item => questQueue.config.target === 'auto' || item.tier === questQueue.config.target);
+        if (!start) return stop('No matching clue scrolls remain.');
+        return submitClueCommand(start.button, 'read', null, start.tier);
+      }
+      if (questQueue.clueSignature && questQueue.clueSignature !== step.signature) return stop('The clue step changed outside this run. Inspect it before restarting.');
+      questQueue.clueSignature = step.signature;
+      if (/^Deed$/i.test(step.type)) {
+        if (step.progress === null || !(step.goal > 0)) return stop('Cannot read deed progress.');
+        const route = clueDeedRoute(step.prompt);
+        if (!route) return stop(`Unrecognized deed: ${step.prompt}`);
+        return void planClueDeed(step, route);
+      }
+      if (/Anagram|Cipher|Riddle/i.test(step.type) && !clueFoes) {
+        status('Reading the Bestiary for this text clue…');
+        return void readForClue(async read => {
+          const page = await read('/bestiary.php');
+          clueFoes = Array.from(page.querySelectorAll('table.data tbody tr')).flatMap(row => {
+            const cells = row.querySelectorAll('td'), level = numberFrom(cells[0]?.textContent.trim());
+            const name = cells[1]?.querySelector('strong')?.textContent.trim();
+            return level > 0 && name ? [{ level, name }] : [];
+          });
+          if (!clueFoes.length) throw new Error('Cannot read the Bestiary foe list.');
+        });
+      }
+      try { fillCluePuzzle(step); }
+      catch (error) { return stop(error.message); }
+      submitClueCommand(step.button, 'answer', step);
+    }
+
+    function planClueDeed(step, route) {
+      status(`Finding an available action for ${route.skill || route.mode}…`);
+      return readForClue(async read => {
+        let selected = { ...route, target: 'auto', preparation: false };
+        if (route.mode === 'craft') {
+          const recipes = craftingTargets(await read(`/craft.php?skill=${route.skill}`), route.skill).filter(recipe => !recipe.locked)
+            .sort((a, b) => (a.xp ?? Infinity) - (b.xp ?? Infinity));
+          const ready = recipes.find(recipe => recipe.available);
+          if (ready) selected.target = ready.key;
+          else {
+            // Gather an obtainable missing ingredient, then re-read the Workshop.
+            // Never buy materials, sell inventory, or etch/equip the crafted sigils.
+            const missing = new Set(recipes.flatMap(recipe => recipe.materials.filter(item => item.owned < item.amount).map(item => item.name)));
+            let ingredient = null;
+            for (const activitySkill of SKILLS) {
+              const items = gatheringTargets(await read(`/gather.php?skill=${activitySkill}`), activitySkill);
+              const target = items.find(item => item.available && missing.has(item.item));
+              if (target) { ingredient = { mode: 'gather', skill: activitySkill, target: target.item, preparation: true }; break; }
+            }
+            if (!ingredient) throw new Error(`No ${route.skill} recipe can be made with available materials or gathered ingredients.`);
+            selected = ingredient;
+          }
+        }
+        const stalled = questQueue.current?.stalled || 0;
+        questQueue.current = { name: `Clue: ${route.skill || route.mode}`, kind: 'deed', ...selected,
+          zone: '', progress: step.progress, goal: step.goal, stalled, unmeasured: 0 };
+        if (!saveQuestQueue()) throw new Error(questError);
+        ui['quest-navigation'].href = `/${selected.mode}.php${selected.skill ? `?skill=${selected.skill}` : ''}`;
+        navigateQuest('activity', { link: ui['quest-navigation'] });
       });
     }
 
+    async function continueClueActivity(destination) {
+      const current = questQueue.current;
+      if (destination !== 'activity' || !current || mode !== current.mode || (['gather', 'craft'].includes(mode) && skill !== current.skill)) return stop('Clue travel reached an unexpected page.');
+      if (!characterName() && !await prepareActivityHero()) return;
+      if (questQueue.character !== characterName()) return stop('The active hero changed. Clue Trails paused.');
+      if (mode === 'shop') Array.from(document.querySelectorAll('section.content button')).find(button => button.type === 'button' && button.textContent.trim() === 'Supplies')?.click();
+      let selected;
+      if (mode === 'gather') selected = gatheringTargets().find(target => target.available && (current.target === 'auto' || target.item === current.target));
+      else if (mode === 'craft') selected = craftingTargets().find(target => target.available && target.key === current.target);
+      else if (mode === 'arena') {
+        const battle = arenaState();
+        selected = targets().find(target => target.available && (!battle.active || target.name === battle.name));
+        if (battle.active && battle.name !== selected?.name) return stop('An unrelated battle is active.');
+      } else selected = deedTargets().filter(target => target.available).sort((a, b) => a.unitCost - b.unitCost)[0];
+      if (!selected) return stop('No available native action can advance this deed.');
+      current.target = mode === 'gather' ? selected.item : mode === 'arena' ? selected.name : selected.key;
+      current.zone = mode === 'arena' ? arenaZone() : '';
+      if (!saveQuestQueue()) return stop(questError);
+      const config = { ...questQueue.config, target: selected.key };
+      applySettings(config);
+      await start({ config, ...runProgress(questQueue), deadline: questQueue.deadline });
+    }
+
+    function checkClueProgress() {
+      const current = questQueue.current;
+      status('Checking deed progress before the next action…');
+      return readForClue(async read => {
+        const page = await read('/clue.php'), step = clueBoard(page)?.step;
+        if (!step || step.signature !== questQueue.clueSignature || step.goal !== current.goal || step.progress < current.progress || step.progress === null) throw new Error('The deed or its progress changed unexpectedly.');
+        current.stalled = step.progress > current.progress ? 0 : current.stalled + 1;
+        current.progress = step.progress;
+        current.unmeasured = 0;
+        if (!saveQuestQueue()) throw new Error(questError);
+        if (!current.preparation && current.stalled >= 3) throw new Error('This action did not advance the deed. No more resources will be consumed.');
+        if (current.preparation || mode === 'craft' || step.progress >= step.goal) return navigateQuest('board');
+      });
+    }
+
+    function deedTargets(page = document) {
+      if (mode === 'altar') return Array.from(page.querySelectorAll('form.altar-bury[data-ajax]')).flatMap(form => {
+        const input = form.querySelector('input[name="qty"]'), button = form.querySelector('button[type="submit"]');
+        const key = form.querySelector('input[name="inv_id"]')?.value, row = form.closest('tr');
+        const name = row?.querySelector('td')?.textContent.trim(), maximum = numberFrom(input?.max);
+        const unitCost = numberFrom(row?.querySelectorAll('td')[2]?.textContent.trim().replace(/^\+/, ''));
+        return key && name && input && button && maximum > 0 && unitCost > 0 ? [{ key, name, input, button, form, maximum, unitCost, batch: 1, available: true, cost: 0 }] : [];
+      });
+      if (mode === 'shop') return Array.from(page.querySelectorAll('form.shop-buy[data-ajax]')).flatMap(form => {
+        const row = form.closest('tr'), input = form.querySelector('input[name="qty"]'), button = form.querySelector('button[type="submit"]');
+        const name = row?.querySelector('td.name strong')?.textContent.trim(), key = form.querySelector('input[name="item_id"]')?.value;
+        const price = row?.querySelector('td.price')?.textContent.trim().match(/^([\d,]+)g\b/);
+        const unitCost = price ? numberFrom(price[1]) : null;
+        // Only ordinary stackable supplies are needed for merchant deeds.
+        return key && ['Feather', 'Vial of Water'].includes(name) && unitCost > 0 && input && button
+          ? [{ key, name, input, button, form, unitCost, batch: 1, available: !button.disabled && (page !== document || isShown(button)), cost: 0 }] : [];
+      });
+      return [];
+    }
+
+    function merchantGold(page = document) {
+      const match = page.querySelector('section.content')?.textContent.match(/You hold\s*([\d,]+)\s*gold\./i);
+      return match ? numberFrom(match[1]) : null;
+    }
+
     function targets() {
-      if (mode === 'clue') return [{ key: 'current', name: 'Current nonogram', available: Boolean(nonogramPuzzle()) }];
+      if (mode === 'clue') return [{ key: 'auto', name: 'Continue trail, then any owned scroll', available: true },
+        ...['easy', 'medium', 'hard'].map(tier => ({ key: tier, name: `Continue trail, then ${tier} scrolls`, available: true }))];
+      if (mode === 'altar' || mode === 'shop') return deedTargets();
       if (mode === 'craft') return craftingTargets();
       if (mode === 'diary') return (diaryBoard()?.zones || []).map(zone => ({ key: zone.name, name: zone.name, available: !zone.locked }));
       if (mode === 'slayer') return [{ key: 'auto', name: 'Automatically repeat Slayer tasks', available: true }];
@@ -1328,7 +1741,7 @@
         || typeof value.character !== 'string' || !value.character || value.character.length > 500) return false;
       if (!validRunConfig(value.config) || !validRunProgress(value) || !Number.isSafeInteger(value.recoveries)
         || !Number.isSafeInteger(value.config.quests)) return false;
-      if (value.source !== undefined && !['slayer', 'diary'].includes(value.source)) return false;
+      if (value.source !== undefined && !['slayer', 'diary', 'clue'].includes(value.source)) return false;
       if (!validVerificationIntent(value.verification)) return false;
       if (value.source === 'diary' && (!DIARY_TIERS.includes(value.config.diaryTier)
         || (value.current && (value.current.kind !== 'kill' || value.current.mode !== 'arena' || value.current.zone !== value.config.target))
@@ -1342,6 +1755,7 @@
       if (!Array.isArray(value.finished) || value.finished.length > 1000 || !value.finished.every(name => typeof name === 'string' && name.length <= 500)) return false;
       if (!Array.isArray(value.skipped) || value.skipped.length > 1000 || !value.skipped.every(entry => typeof entry?.name === 'string'
         && entry.name.length <= 500 && typeof entry.reason === 'string' && entry.reason.length <= 500)) return false;
+      if (value.source === 'clue') return validClueQueue(value);
       if (!value.current) return value.current === null;
       const current = value.current;
       if (current.totalOnly !== undefined && typeof current.totalOnly !== 'boolean') return false;
@@ -1407,7 +1821,7 @@
         finally { ownSubmit = false; }
         if (!submitted) return stop('The task navigation button did not submit.');
       } else {
-        ui['quest-navigation'].href = TASK_BOARDS[questQueue.source || 'quest'];
+        if (!action?.link) ui['quest-navigation'].href = TASK_BOARDS[questQueue.source || 'quest'];
         (action?.link || ui['quest-navigation']).click();
       }
       status(destination === 'board' ? 'Checking task progress on the board…' : `Travelling for ${questQueue.current.name}…`);
@@ -1444,6 +1858,7 @@
     }
 
     function tickQuestBoard() {
+      if (mode === 'clue') return tickClueBoard();
       if (mode === 'diary') return tickDiaryBoard();
       if (mode === 'slayer') return tickSlayerBoard();
       if (pending) {
@@ -1545,7 +1960,7 @@
       const config = resume ? questQueue.config : settingsFromUI();
       if (!config || (!resume && !onTaskBoard)) return;
       if (checkpoint && (!resume || !checkpoint.canResume)) return status('Inspect and discard the saved activity before starting quests.');
-      if (resume && !['slayer', 'diary'].includes(mode) && questQueue.character !== characterName()) return status('The active hero changed. Return to the original hero or discard the quest queue.');
+      if (resume && !['slayer', 'diary', 'clue', 'altar', 'shop', 'craft'].includes(mode) && questQueue.character !== characterName()) return status('The active hero changed. Return to the original hero or discard the quest queue.');
       if (resume && Date.now() >= questQueue.deadline) return status('The quest queue’s original time limit expired. Discard it and start a new queue.');
       if (resume && staleTaskBoard) {
         return void holdGameLock(() => {
@@ -1555,7 +1970,7 @@
       }
       await holdGameLock(async () => {
         const attempt = generation;
-        if (['slayer', 'diary'].includes(mode)) {
+        if (['slayer', 'diary', 'clue'].includes(mode)) {
           starting = true;
           taskHero = await identifyTaskHero();
           if (attempt !== generation) return;
@@ -1564,6 +1979,8 @@
           if (mode === 'slayer') {
             const board = slayerBoard();
             if (!board || (resume && !confirmSlayerCommand(board))) return stop('The Slayer request was not confirmed. Inspect the board; no request was repeated.');
+          } else if (mode === 'clue') {
+            if (!clueBoard() || (resume && !confirmClueCommand())) return stop('The clue request is unconfirmed. Inspect the trail; no answer or scroll was resubmitted.');
           } else if (!diaryBoard() || (resume && !confirmDiaryCommand())) return stop('The diary claim was not confirmed. Inspect Diaries; no request was repeated.');
         }
         if (!resume) saveSettings(config);
@@ -1572,6 +1989,7 @@
           ...runProgress(), finished: [], skipped: [], current: null };
         if (!resume && mode === 'slayer') Object.assign(questQueue, { source: 'slayer', tasksCompleted: 0 });
         if (!resume && mode === 'diary') questQueue.source = 'diary';
+        if (!resume && mode === 'clue') Object.assign(questQueue, { source: 'clue', trailsCompleted: 0, goldSpent: 0, clueSignature: '' });
         questQueue.active = true;
         if (!questQueue.character || !saveQuestQueue()) return stop(questError || 'Cannot identify the quest hero.');
         if (checkpoint && !clearCheckpoint()) return stop(checkpointError);
@@ -1588,6 +2006,9 @@
       if (!saveQuestQueue()) return stop(questError);
       if (humanCheck().required) return pauseForVerification();
       if (destination === 'board' && mode === (questQueue.source || 'quest')) return void startQuestQueue(true);
+      if (questQueue.uncertain) return stop('The previous task action is unconfirmed. Inspect its result before resuming.');
+      if (Date.now() >= questQueue.deadline) return stop('Time limit reached.');
+      if (questQueue.source === 'clue') return void continueClueActivity(destination);
       if (questQueue.character !== characterName()) return stop('The active hero changed. Task automation paused.');
       const current = questQueue.current;
       if (destination !== 'activity' || !current || mode !== current.mode || (mode === 'gather' && skill !== current.skill)) return stop('Quest travel reached an unexpected page. Inspect it before resuming.');
@@ -1618,6 +2039,10 @@
 
     function updateQuestProgress(prior, flashes, page = document) {
       const current = questQueue?.phase === 'activity' && questQueue.current;
+      if (questQueue?.source === 'clue' && current) {
+        if (['gather', 'craft', 'bury', 'buy'].includes(prior.kind) || (prior.kind === 'strike' && arenaState(page).victory)) current.unmeasured = 1;
+        return '';
+      }
       if (!current || !['gather', 'strike'].includes(prior.kind)) return '';
       if (prior.kind === 'strike' && !arenaState(page).victory) return '';
       if (questQueue.source === 'diary') {
@@ -1809,7 +2234,7 @@
         const page = await fetchQuestPage(new URL('/arena.php', location.origin), controller.signal);
         if (potionRead !== controller || controller.signal.aborted) return;
         if (humanCheckLink(page)) throw new Error('Complete the game’s human check manually in Combat, then try again.');
-        if (['slayer', 'diary'].includes(mode) && !taskHero) taskHero = characterName(page);
+        if (['slayer', 'diary', 'clue'].includes(mode) && !taskHero) taskHero = characterName(page);
         if (!characterName() || characterName(page) !== characterName()) throw new Error('The active hero changed.');
         if (!page.getElementById('quick-drink-select')) throw new Error('Quick drink is unavailable. Open Combat to inspect your potion inventory.');
         const warning = refreshPotions(selectedPotions(), page);
@@ -1879,35 +2304,35 @@
       if (progress?.drunk || progress?.config?.potions?.length) ui.stats.textContent += ` · ${progress.drunk || 0} potions drunk`;
       if (mode === 'raid') ui.stats.textContent += ` · ${progress?.raidsCompleted || 0} raids completed`;
       if (mode === 'craft') ui.stats.textContent = `${progress?.completed || 0} confirmed crafting batches`;
-      ui.stats.hidden = mode === 'clue';
       const busy = starting || restoring || Boolean(run?.active) || Boolean(pending) || Boolean(questNavigationDeadline) || Boolean(potionRead);
       const guard = humanCheck();
       checkSounds?.update(guard.required);
       for (const control of ui.controls.querySelectorAll('input, select')) control.disabled = busy || Boolean(checkpoint || questQueue);
-      ui['potion-settings'].hidden = !['arena', 'raid', 'quest', 'slayer', 'diary'].includes(mode);
+      ui['potion-settings'].hidden = !['arena', 'raid', 'quest', 'slayer', 'diary', 'clue'].includes(mode);
       ui['load-potions'].hidden = !onTaskBoard;
       ui['load-potions'].disabled = busy || guard.required || Boolean(checkpoint || questQueue);
       ui.start.disabled = busy || guard.required || Boolean(checkpoint || questQueue || questError) || Boolean(checkpointError) || mode === 'hall' || !ui.target.value || !navigator.locks?.request;
       ui.stop.disabled = !starting && !restoring && !run?.active && !checkpoint && !questQueue && !potionRead;
       ui['battle-settings'].hidden = mode !== 'arena' && !onTaskBoard;
       ui['quest-settings'].hidden = mode !== 'quest';
+      ui['clue-settings'].hidden = mode !== 'clue';
       ui['raid-settings'].hidden = mode !== 'raid';
       ui.maxRaids.parentElement.firstChild.textContent = ui.raidAll.checked ? 'Raids per boss' : 'Maximum raids';
-      ui['food-settings'].hidden = ['craft', 'clue'].includes(mode);
-      ui['limits-settings'].hidden = mode === 'clue';
-      ui['recovery-settings'].hidden = mode === 'clue';
-      ui.start.textContent = mode === 'clue' ? 'Fill solution' : mode === 'craft' ? 'Craft all' : 'Start';
+      ui['food-settings'].hidden = ['craft', 'altar', 'shop'].includes(mode);
+      ui.start.textContent = mode === 'craft' ? 'Craft all' : 'Start';
       ui['diary-settings'].hidden = mode !== 'diary';
       ui['quest-progress'].hidden = !questQueue && !questError;
       ui['quest-resume'].disabled = busy || guard.required || !questQueue || (questQueue.uncertain && !questQueue.command) || Boolean(questError);
       ui['quest-resume'].hidden = busy;
       ui['quest-discard'].hidden = busy;
+      const clue = questQueue?.source === 'clue';
       const slayer = questQueue?.source === 'slayer';
       const diary = questQueue?.source === 'diary';
-      ui['quest-resume'].textContent = diary ? 'Resume diary' : slayer ? 'Resume Slayer' : 'Resume quests';
-      ui['quest-discard'].textContent = diary ? 'Discard diary run' : slayer ? 'Discard Slayer run' : 'Discard quest queue';
+      ui['quest-resume'].textContent = clue ? 'Resume trail' : diary ? 'Resume diary' : slayer ? 'Resume Slayer' : 'Resume quests';
+      ui['quest-discard'].textContent = clue ? 'Discard trail run' : diary ? 'Discard diary run' : slayer ? 'Discard Slayer run' : 'Discard quest queue';
       ui['quest-discard'].disabled = busy;
       ui['quest-info'].textContent = questError || (questQueue ? `${questQueue.active ? 'Quest queue' : 'Paused quest queue'}: ${questQueue.finished.length}/${questQueue.config.quests} completed${questQueue.current ? ` · ${questQueue.current.name}: ${questQueue.current.progress}/${questQueue.current.goal}` : ''}.${questQueue.uncertain ? ' The last request is unconfirmed; inspect its result before discarding and restarting.' : ''}${questQueue.skipped.length ? ` Skipped: ${questQueue.skipped.map(entry => `${entry.name} (${entry.reason})`).join('; ')}` : ''}` : '');
+      if (clue && !questError) ui['quest-info'].textContent = `${questQueue.active ? 'Clues' : 'Paused clues'}: ${questQueue.trailsCompleted}/${questQueue.config.trails} trails completed${questQueue.current ? ` · ${questQueue.current.name}: ${questQueue.current.progress}/${questQueue.current.goal}` : ''}.`;
       if (slayer && !questError) ui['quest-info'].textContent = `${questQueue.active ? 'Slayer' : 'Paused Slayer'}: ${questQueue.tasksCompleted} tasks completed${questQueue.current ? ` · ${questQueue.current.target}: ${questQueue.current.progress}/${questQueue.current.goal}` : ''}.${questQueue.uncertain ? ' The last request is unconfirmed; inspect the board.' : ''}`;
       if (diary && !questError) ui['quest-info'].textContent = `${questQueue.active ? 'Diary' : 'Paused diary'}: ${questQueue.config.target} · ${questQueue.config.diaryTier}${questQueue.current ? ` · ${questQueue.current.target}: ${questQueue.current.progress}/${questQueue.current.goal}${questQueue.current.totalOnly ? ' (area total)' : ''}` : ''}.${questQueue.uncertain ? ' Waiting for confirmation.' : ''}`;
       ui['quest-info'].hidden = Boolean(diary && !questQueue.current && !questError);
@@ -2047,10 +2472,10 @@
       if (starting || restoring || run?.active || pending || potionRead || mode === 'hall') return;
       if (humanCheck().required) return status('Complete the game’s human verification yourself before starting.');
       if ((checkpoint || checkpointError) && !savedRun) return status('Use Restore & resume or discard the saved run before starting.');
-      if (mode === 'clue') return fillNonogram();
+      if (['altar', 'shop'].includes(mode) && questQueue?.source !== 'clue') return status('Start Clue Trails from its board first.');
       const config = savedRun ? { ...DEFAULTS, ...savedRun.config } : settingsFromUI();
       if (!config || (!targets().some(target => target.key === config.target && target.available) && !endedSavedRaid(savedRun))) return;
-      if (mode === 'craft' && (!savedRun || !taskHero) && !await prepareCraftHero()) return;
+      if (mode === 'craft' && (!savedRun || !taskHero) && !await prepareActivityHero()) return;
       await holdGameLock(() => {
         try {
           if (!savedRun) saveSettings(config);
@@ -2104,7 +2529,7 @@
     async function restoreSavedRun() {
       if (!checkpoint || checkpointError || starting || restoring || run?.active || pending) return;
       if (humanCheck().required) return pauseForVerification();
-      if (mode === 'craft' && !taskHero && !await prepareCraftHero()) return;
+      if (mode === 'craft' && !taskHero && !await prepareActivityHero()) return;
       if (checkpoint.character && characterName() !== checkpoint.character) {
         checkpoint.restoreRequested = false;
         writeCheckpoint();
@@ -2252,6 +2677,18 @@
       }
       if (destination.origin !== location.origin || target.form.hasAttribute('data-confirm')) return false;
       const hasFields = (...names) => names.every(name => target.form.querySelector(`input[name="${name}"]`));
+      if (kind === 'clue') return mode === 'clue' && destination.pathname === '/clue.php'
+        && !target.form.hasAttribute('onsubmit') && target.button.form === target.form && !target.button.disabled
+        && hasFields('csrf', 'action') && (target.form === clueBoard()?.step?.form
+          || clueBoard()?.starts.some(start => start.button === target.button));
+      if (kind === 'bury' || kind === 'buy') return questQueue?.source === 'clue'
+        && mode === (kind === 'bury' ? 'altar' : 'shop') && destination.pathname === `/${mode}.php`
+        && target.form.matches(kind === 'bury' ? '.altar-bury[data-ajax]' : '.shop-buy[data-ajax]')
+        && hasFields('csrf', kind === 'bury' ? 'inv_id' : 'item_id', 'qty')
+        && target.input.form === target.form && target.button.form === target.form && !target.button.disabled
+        && deedTargets().some(item => item.form === target.form && item.key === target.key)
+        && target.batch === 1 && (kind !== 'buy' || (merchantGold() >= target.unitCost
+          && questQueue.goldSpent + target.unitCost <= questQueue.config.clueGold));
       if (kind.startsWith('diary-')) {
         if (mode !== 'diary' || target.button.disabled || target.form.hasAttribute('onsubmit')
           || target.button.form !== target.form || !hasFields('csrf', 'action')) return false;
@@ -2338,12 +2775,14 @@
         target.select.value = target.selected.value;
         target.select.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      if (kind === 'craft') {
+      if (['craft', 'bury', 'buy'].includes(kind)) {
         target.input.value = String(target.batch);
         target.input.dispatchEvent(new Event('change', { bubbles: true }));
       }
       pending = { kind, name: target.name, purpose: target.purpose, stat: target.stat, boost: target.boost,
         recipe: kind === 'craft' ? target.key : null, materials: target.materials, batch: target.batch,
+        deedKey: ['bury', 'buy'].includes(kind) ? target.key : null, stock: target.maximum,
+        unitCost: target.unitCost, gold: kind === 'buy' ? merchantGold() : null,
         raidAll: kind === 'raid-summon' && checkpoint.config.raidAll,
         hero: characterName(), raidDamage: kind === 'raid' ? raidPersonalDamage() : null,
         previousRaidId: kind === 'raid-summon' ? checkpoint.raidId : null,
@@ -2376,7 +2815,7 @@
         stop('The game did not accept the button click. No automatic retry was made.');
         return;
       }
-      const verb = { eat: 'Eating', drink: 'Drinking', gather: 'Gathering', craft: 'Crafting', engage: 'Engaging', strike: 'Attacking', raid: 'Attacking', 'raid-summon': 'Summoning', travel: 'Returning to', 'quest-accept': 'Accepting', 'quest-claim': 'Turning in' }[kind];
+      const verb = { eat: 'Eating', drink: 'Drinking', gather: 'Gathering', craft: 'Crafting', bury: 'Burying', buy: 'Buying', engage: 'Engaging', strike: 'Attacking', raid: 'Attacking', 'raid-summon': 'Summoning', travel: 'Returning to', 'quest-accept': 'Accepting', 'quest-claim': 'Turning in' }[kind];
       status(`${verb} ${target.name}; waiting for the game…`);
       schedule();
     }
@@ -2474,6 +2913,26 @@
         return;
       }
       if (questRead) { schedule(); return; }
+      if (questQueue?.source === 'clue' && !['gather', 'arena'].includes(mode)) {
+        if (questQueue.current?.unmeasured) return void checkClueProgress();
+        if (questObjectiveFinished()) return navigateQuest('board');
+      }
+      if (mode === 'altar' || mode === 'shop') {
+        updateFinishReason();
+        if (run.finishReason) return stop(run.finishReason);
+        if (now < run.nextAt) { schedule(); return; }
+        const choices = deedTargets().filter(target => target.available);
+        const target = choices.find(target => target.key === run.config.target) || choices.sort((a, b) => a.unitCost - b.unitCost)[0];
+        if (!target) return stop('The deed action is no longer available.');
+        if (target.key !== run.config.target) {
+          run.config.target = target.key;
+          questQueue.current.target = target.key;
+          if (!saveQuestQueue()) return stop(questError);
+        }
+        if (mode === 'shop' && (merchantGold() < target.unitCost || questQueue.goldSpent + target.unitCost > questQueue.config.clueGold)) return stop('Merchant deed gold budget reached or insufficient gold.');
+        if (!waitForButton(target.button, now)) send(target, mode === 'altar' ? 'bury' : 'buy');
+        return;
+      }
       if (mode === 'craft') {
         updateFinishReason();
         if (run.finishReason) return stop(run.finishReason);
@@ -2481,6 +2940,7 @@
         if (!target) return stop('The crafting recipe or material counts changed. No batch was sent.');
         if (target.maximum === 0) return stop('All craftable materials used.');
         if (!target.available || !target.batch) return stop('The selected recipe is locked or its batch control is unavailable.');
+        if (questQueue?.source === 'clue') target.batch = 1;
         if (now < run.nextAt) { status('Waiting before the next crafting batch.'); schedule(); return; }
         if (!waitForButton(target.button, now)) send(target, 'craft');
         return;
@@ -2492,6 +2952,7 @@
       // Heal before any further attack, including after the final allowed attack.
       // Never overlap healing with an unconfirmed request.
       if (run.config.autoHeal && hp.current < hp.maximum) return recover(hp, now, 'hp');
+      if (questQueue?.source === 'clue' && questQueue.current?.unmeasured) return void checkClueProgress();
       if (questObjectiveFinished()) return navigateQuest('board');
       if (needsQuestProgressCheck()) return void checkQuestProgress();
       if (mode === 'raid' && run.finishReason === 'Boss defeated.' && (run.config.raidAll || run.config.maxRaids > 1)) {
@@ -2525,6 +2986,14 @@
     }
 
     function confirmResult(prior, flashes, page = document) {
+      if (prior.kind === 'bury') {
+        const item = deedTargets(page).find(item => item.key === prior.deedKey && item.name === prior.name);
+        return Boolean((item ? item.maximum === prior.stock - prior.batch : prior.stock === prior.batch)
+          && flashes.some(flash => flash.classList.contains('flash-ok') && /\b(?:bury|buried)\b/i.test(flash.textContent)));
+      }
+      if (prior.kind === 'buy') return merchantGold(page) === prior.gold - prior.unitCost * prior.batch
+        && flashes.some(flash => flash.classList.contains('flash-ok') && /\b(?:buy|bought|purchased)\b/i.test(flash.textContent)
+          && flash.textContent.toLowerCase().includes(prior.name.toLowerCase()));
       if (prior.kind === 'craft') {
         const recipe = craftingTargets(page).find(item => item.key === prior.recipe && item.name === prior.name);
         return Boolean(recipe && prior.materials?.length && recipe.materials.length === prior.materials.length
@@ -2619,7 +3088,7 @@
           || (['gather', 'craft'].includes(mode) && (destination.searchParams.get('skill') || (mode === 'craft' ? 'fletching' : 'mining')) !== skill)) throw new Error('The server returned a different activity.');
         const page = new DOMParser().parseFromString(await response.text(), 'text/html');
         if (!current()) return;
-        const hero = mode === 'craft' ? await identifyTaskHero() : characterName(page);
+        const hero = ['craft', 'altar', 'shop'].includes(mode) ? await identifyTaskHero() : characterName(page);
         if (!current()) return;
         if (!characterName() || hero !== characterName()) throw new Error('The active hero could not be verified.');
         const guard = humanCheckLink(page);
@@ -2650,6 +3119,18 @@
     }
 
     function reloadConfirmedResult(prior, page) {
+      if (questQueue?.source === 'clue') {
+        if (['gather', 'arena'].includes(mode) && !health(page)) return stop('Automatic recovery could not read HP.');
+        if (health(page)?.current === 0) return stop('The hero was defeated.');
+        countConfirmedAction(run, prior.kind, page);
+        run.recoveries += 1;
+        run.nextAt = Date.now() + run.config.interval * 1000;
+        if (prior.kind === 'buy') questQueue.goldSpent += prior.unitCost * prior.batch;
+        questQueue.uncertain = false;
+        pending = null;
+        cancelResponseRecovery();
+        return navigateQuest('board');
+      }
       if (mode !== 'craft' && !health(page)) return stop('Automatic recovery found a result but could not read HP. No further action was sent.');
       if (mode !== 'craft' && health(page).current === 0) return stop('The hero was defeated. No further action was sent.');
       if (!rememberActivity()) return stop(checkpointError || 'Could not save the exact activity for automatic recovery.');
@@ -2689,6 +3170,13 @@
       refreshFood(run?.active ? run.config.food : ui.food.value);
       refreshPotions(run?.active ? run.config.potions || [] : selectedPotions());
       render();
+      if (questQueue?.source === 'clue' && questQueue.command && questNavigationDeadline && !pending && confirmClueCommand()) {
+        questNavigationDeadline = 0;
+        ownNavigation = false;
+        Object.assign(run, runProgress(questQueue));
+        tick();
+        return;
+      }
       if (!pending || pending.form.isConnected) {
         if (humanCheck().required && (run?.active || restoring)) pauseForVerification();
         return;
@@ -2755,6 +3243,7 @@
       if (run) countConfirmedAction(run, prior.kind);
       if (questQueue) {
         questQueue.uncertain = false;
+        if (prior.kind === 'buy') questQueue.goldSpent += prior.unitCost * prior.batch;
         if (prior.kind === 'quest-claim') {
           if (!questQueue.finished.includes(prior.name)) questQueue.finished.push(prior.name);
           if (questQueue.current?.name === prior.name) questQueue.current = null;
@@ -2775,7 +3264,7 @@
         status('Stopped. The last sent action completed.');
         return;
       }
-      if (mode === 'craft') { tick(); return; }
+      if (['craft', 'altar', 'shop'].includes(mode)) { tick(); return; }
       if (questQueue && mode === 'quest') {
         schedule();
         status('Quest request confirmed. Checking the next objective.');
@@ -2842,19 +3331,18 @@
         saveQuestQueue();
       }
     } catch (error) { questError = `Could not read the quest queue: ${error.message}`; }
-    const targetLabel = { gather: 'Resource', arena: 'Enemy', raid: 'Boss', craft: 'Recipe', clue: 'Puzzle', quest: 'Quest selection', slayer: 'Slayer tasks', diary: 'Area', hall: 'Target' }[mode];
+    const targetLabel = { gather: 'Resource', arena: 'Enemy', raid: 'Boss', craft: 'Recipe', altar: 'Bones', shop: 'Supply', clue: 'Scroll selection', quest: 'Quest selection', slayer: 'Slayer tasks', diary: 'Area', hall: 'Target' }[mode];
     ui['target-label'].textContent = targetLabel;
     ui.target.setAttribute('aria-label', targetLabel);
     if (mode === 'hall') message = 'Choose an activity above.';
     else if (!ui.target.value) message = mode === 'gather' ? 'No unlocked gathering actions. Choose another skill or meet its level requirement.' : 'Choose a target using the game’s controls first.';
     if (mode === 'craft' && ui.target.value) message = 'Ready. Choose a recipe and press Craft all.';
-    if (mode === 'clue') message = nonogramPuzzle() ? 'Ready. Use Fill solution to paint the current nonogram.'
-      : 'The clue helper supports nonograms up to 10×10. Other trail steps remain manual.';
+    if (mode === 'clue') message = 'Ready. Start continues the current trail, performs deeds, submits answers, and collects its reward.';
     if (!navigator.locks?.request) message = 'Web Locks are unavailable. A browser with Web Locks support is required.';
     if (humanCheck().required) message = 'Complete the game’s human check yourself before restoring or starting an activity.';
     else if (checkpoint) message = 'Saved activity ready. Use its Restore control or discard it to begin a new run.';
     if (checkpointError) message = checkpointError;
-    if (questQueue) message = questQueue.source === 'diary' ? 'Diary run saved. Resume it or discard it to begin a new run.'
+    if (questQueue) message = questQueue.source === 'clue' ? 'Clue run saved. Resume it or discard it to begin a new run.' : questQueue.source === 'diary' ? 'Diary run saved. Resume it or discard it to begin a new run.'
       : questQueue.source === 'slayer' ? 'Slayer run saved. Resume it or discard it to begin a new run.' : 'Quest queue saved. Resume it or discard it to begin a new run.';
     if (questError) message = questError;
     checkSounds = createCheckSounds(ui, () => humanCheck().required);
@@ -2955,7 +3443,7 @@
           if (checkpoint) { checkpoint.restoreRequested = false; checkpoint.verification = false; writeCheckpoint(); }
           questQueue = readQuestQueue();
           if (questQueue) { questQueue.active = false; questQueue.continuation = null; saveQuestQueue(); }
-          staleTaskBoard = ['slayer', 'diary'].includes(mode) && questQueue?.source === mode;
+          staleTaskBoard = ['slayer', 'diary', 'clue'].includes(mode) && questQueue?.source === mode;
         } catch (error) { questError = `Could not restore the quest queue: ${error.message}`; }
         status(questError || checkpointError || (checkpoint ? 'Returned to a cached activity. Inspect the page before using Restore & resume.'
           : staleTaskBoard ? `Returned to a cached ${mode === 'slayer' ? 'Slayer' : 'diary'} board. Resume reloads fresh task controls before continuing.`

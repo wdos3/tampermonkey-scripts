@@ -21,7 +21,7 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
     { id: 'locked', name: 'Locked contract', target: 'Other Foe', kind: 'kill', goal: 1, progress: 0, group: 'Locked' },
   ],
 };
-const mode = { '/guard.php': 'guard', '/diaries.php': 'diary', '/slayer.php': 'slayer', '/quests.php': 'quest', '/arena.php': 'arena', '/raid.php': 'raid', '/craft.php': 'craft', '/clue.php': 'clue' }[location.pathname] || 'gather';
+const mode = { '/guard.php': 'guard', '/diaries.php': 'diary', '/slayer.php': 'slayer', '/quests.php': 'quest', '/arena.php': 'arena', '/raid.php': 'raid', '/craft.php': 'craft' }[location.pathname] || 'gather';
 const skill = new URLSearchParams(location.search).get('skill') || 'fishing';
 const slayerFight = new URLSearchParams(location.search).get('from') === 'slayer';
 const diaryFight = new URLSearchParams(location.search).get('from') === 'diary';
@@ -62,17 +62,6 @@ function render() {
   } else if (mode === 'craft') {
     document.querySelector('aside')?.remove();
     section.innerHTML = craftContent(skill, game.recipes, `fixture-token-${game.requests}`);
-  } else if (mode === 'clue') {
-    document.querySelector('aside')?.remove();
-    section.innerHTML = nonogramContent();
-    const output = document.getElementById('nono-cells');
-    const bits = output.value.split('');
-    for (const cell of section.querySelectorAll('button.nono')) cell.addEventListener('click', () => {
-      const index = Number(cell.dataset.i);
-      bits[index] = bits[index] === '1' ? '0' : '1';
-      cell.style.background = bits[index] === '1' ? '#f0c860' : '#1a120a';
-      output.value = bits.join('');
-    });
   } else if (mode === 'diary') {
     document.querySelector('aside')?.remove();
     section.innerHTML = diaryContent(game.diaries.map(zone => ({ ...zone, away: zone.name !== game.zone })), `fixture-token-${game.requests}`);

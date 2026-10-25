@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.0 — 2026-10-25
+
+- Replace the manual nonogram filler with a saved Clue Trails task runner. Continue the current trail, optionally read owned scrolls up to a chosen completion limit, submit recognized puzzles, and confirm the game's final reward before counting a trail or reading another scroll. Default to one trail.
+- Add unique bounded Sudoku solving, legal sliding-tile moves, native word-search selections, Treasurer's Ledger arithmetic, and Bestiary-matched anagram/cipher answers. Unseen Lights Out/Rune-lock controls and unresolved riddles pause, as requested; explicit Resume can adopt a manually advanced step.
+- Route recognized deeds through gathering, Workshop recipes, arena combat, the altar, and ordinary supply purchases. Check authoritative progress after confirmed actions; craft/bury one operation at a time, gather directly obtainable missing ingredients, cap merchant spending, and pause after three results without deed progress. Preserve selected food/potions, original budgets, hero identity, locking, verification continuation, and uncertain-request safeguards.
+- Add 30 clue regression cases replacing the previous five filler tests; all 421 tests and syntax checks pass. A local browser completed puzzle submission, altar travel, two single-bone actions, reward confirmation, and stopping at the trail cap without warning/error logs. Live native controls completed the active trail and eight additional Easy trails, leaving four Easy scrolls and all 38 Lucky Caskets. The installed Tampermonkey runner remains unverified on the live site.
+
 ## 1.11.0 — 2026-10-25
 
 - Add opt-in all-boss raid cycles with an adjustable per-boss completion goal. Native Summon/first Attack can start the cycle; confirmed defeats retain cumulative budgets and move through available bosses. Skip named daily-limit responses and unavailable controls; stop when no eligible bosses remain. Preserve existing single-boss settings and unknown-request safeguards.

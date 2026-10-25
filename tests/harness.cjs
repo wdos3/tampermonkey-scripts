@@ -209,6 +209,7 @@ function fixture(t, options = {}) {
     const startedAt = clock.now;
     const requestURL = new URL(form.getAttribute('action') || window.location.href, window.location.href).href;
     state.requests.push(payload);
+    if (['clue', 'altar', 'shop'].includes(mode)) { options.deedSubmit?.(payload, state, window); return; }
     if (mode === 'craft') { options.craftSubmit?.(payload, state, window); return; }
     if (mode === 'diary') { options.diarySubmit?.(payload, state, window); return; }
     if (mode === 'slayer') { options.slayerSubmit?.(payload, state, window); return; }
