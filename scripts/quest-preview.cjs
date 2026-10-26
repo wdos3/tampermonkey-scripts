@@ -8,15 +8,15 @@ const { questContent, escapeHTML } = require('../tests/quest-fixture.cjs');
 const { slayerContent } = require('../tests/slayer-fixture.cjs');
 const { diaryContent } = require('../tests/diary-fixture.cjs');
 const { craftContent } = require('../tests/craft-fixture.cjs');
-const { clueContent, nonogramContent } = require('../tests/clue-fixture.cjs');
+const { clueContent, nonogramContent, cipherContent } = require('../tests/clue-fixture.cjs');
 const potions = [
   { id: 'combat', name: 'Super Combat Elixir', stat: 'combat', boost: 8, quantity: 20 },
   { id: 'attack', name: 'Super Attack Elixir', stat: 'attack', boost: 7, quantity: 20 },
   { id: 'strength', name: 'Super Strength Elixir', stat: 'strength', boost: 7, quantity: 20 },
 ];
 
-let clueStep = 1, bones = 5, deedProgress = 0;
-const clueMarkup = () => clueStep === 1 ? nonogramContent() : clueStep === 2
+let clueStep = 1, bones = 5, deedProgress = 0, cluePuzzle = 'nonogram';
+const clueMarkup = () => clueStep === 1 ? (cluePuzzle === 'cipher' ? cipherContent() : nonogramContent()) : clueStep === 2
   ? clueContent({ index: 2, progress: deedProgress }) : clueContent({ idle: true });
 const altarMarkup = () => `<h1>The Altar</h1><table><tr><td>Big Bones</td><td>${bones}</td><td>+15</td><td>
   <form method="post" class="altar-bury" data-ajax><input name="csrf" type="hidden" value="local-token"><input name="action" type="hidden" value="bury">
@@ -48,13 +48,15 @@ const server = http.createServer((request, response) => {
           bones -= 1; deedProgress += 15;
           response.writeHead(200, { 'Content-Type': 'text/html' }).end(cluePreview(altarMarkup(), 'You bury 1 Big Bones.'));
         } else {
-          if (clueStep === 1 && fields.get('cells') === '0011111000000111101101001') clueStep = 2;
+          if (clueStep === 1 && cluePuzzle === 'cipher' && fields.get('answer') === 'NO CAPE WITHOUT A HUNDRED NIGHTS') clueStep = 3;
+          else if (clueStep === 1 && cluePuzzle === 'nonogram' && fields.get('cells') === '0011111000000111101101001') clueStep = 2;
           else if (clueStep === 2 && deedProgress >= 20) clueStep = 3;
           response.writeHead(303, { Location: '/clue.php' }).end();
         }
       });
       return;
     }
+    if (url.pathname === '/clue.php' && url.searchParams.get('puzzle') === 'cipher') { cluePuzzle = 'cipher'; clueStep = 1; }
     response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' }).end(cluePreview(url.pathname === '/altar.php' ? altarMarkup() : clueMarkup(),
       url.pathname === '/clue.php' && clueStep === 3 ? 'The trail ends at a buried casket: 2,160g and a Emerald.' : ''));
     return;

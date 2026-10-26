@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { fixture, lockManager, flush } = require('./harness.cjs');
 const { page } = require('./fixture.cjs');
-const { clueContent, nonogramContent } = require('./clue-fixture.cjs');
+const { clueContent, nonogramContent, cipherContent } = require('./clue-fixture.cjs');
 const { craftContent } = require('./craft-fixture.cjs');
 const KEY = 'dankscape-assistant:quest-queue:v1';
 const html = content => `<section class="content">${content}</section><div id="flash-stack"></div>`;
@@ -166,6 +166,42 @@ for (const [type, text] of [['Anagram', 'L G O I B N'], ['Cipher', 'JREOLQ']]) t
   const f = trail(t, { content: clueContent({ type, prompt: 'Name a foe of level 5 (6 letters).', body: `<p>${text}</p><input name="answer">` }) });
   await f.start(); await f.advance(500);
   assert.equal(f.state.requests[0].answer, 'Goblin');
+});
+
+test('the current saying Cipher decodes its declared shift and submits without a Bestiary lookup', async t => {
+  const f = trail(t, { content: cipherContent(),
+    read: url => { assert.notEqual(url.pathname, '/bestiary.php'); return null; } });
+  await f.start(); await f.advance(500);
+  assert.equal(f.state.requests.length, 1);
+  assert.equal(f.state.requests[0].answer, 'NO CAPE WITHOUT A HUNDRED NIGHTS');
+  f.respond(clueContent({ idle: true }), 'The trail ends at a buried casket: 2,160g and a Emerald.');
+  await f.advance(500);
+  assert.equal(f.queue().trailsCompleted, 1);
+});
+
+test('saying Ciphers preserve spaces and punctuation for every declared Caesar shift', async t => {
+  const saying = "The HERO'S path, at last: 99 bones!";
+  for (let shift = 0; shift < 26; shift++) {
+    const encoded = saying.replace(/[A-Za-z]/g, c => { const base = c >= 'a' ? 97 : 65; return String.fromCharCode(base + (c.charCodeAt(0) - base + shift) % 26); });
+    const f = trail(t, { content: clueContent({ type: 'Cipher', prompt: `A Caesar cipher hides a saying of the realm — by ${shift} places.`,
+      body: `<p style="font-family:monospace">${encoded}</p><input name="answer" placeholder="Write the decoded saying">` }) });
+    await f.start(); await f.advance(100);
+    assert.equal(f.state.requests[0].answer, saying);
+  }
+});
+
+test('ambiguous shifts and malformed saying Cipher controls pause without submitting', async t => {
+  for (const [prompt, body] of [
+    ['A Caesar cipher hides a saying of the realm.', '<p>ABC DEF</p>'],
+    ['A Caesar cipher hides a saying of the realm — by 26 places.', '<p>ABC DEF</p>'],
+    ['A Caesar cipher hides a saying of the realm — by 1 places or by 2 places.', '<p>ABC DEF</p>'],
+    ['A Caesar cipher hides a saying of the realm — by 1 places.', '<p>ABC DEF</p><p>GHI JKL</p>'],
+  ]) {
+    const f = trail(t, { content: clueContent({ type: 'Cipher', prompt, body: `${body.replaceAll('<p>', '<p style="font-family:monospace">')}<input name="answer" placeholder="Write the decoded saying">` }) });
+    await f.start(); await f.advance(100);
+    assert.equal(f.state.requests.length, 0);
+    assert.match(f.status(), /no single verified answer/);
+  }
 });
 
 test('unknown clues, non-unique text matches, unconfirmed rewards and foreign destinations never repeat a submission', async t => {

@@ -17,4 +17,10 @@ function nonogramContent(rows = [[3], [2], [2], [2, 2], [1, 1]], columns = [[1, 
     <input type="hidden" id="nono-cells" name="cells" value="${bits}">` });
 }
 
-module.exports = { clueContent, nonogramContent };
+function cipherContent() {
+  return clueContent({ type: 'Cipher', index: 2,
+    prompt: 'A Caesar cipher hides a saying of the realm. Every letter was shifted by the same amount — by 11 places. Write the true words.',
+    body: '<p style="font-family:monospace">YZ NLAP HTESZFE L SFYOCPO YTRSED</p><input name="answer" placeholder="Write the decoded saying">' });
+}
+
+module.exports = { clueContent, nonogramContent, cipherContent };

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.12.0
+// @version      1.12.1
 // @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @description  Gathering, crafting, combat, raids, tasks, and Clue Trails with food, potions, and recovery.
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.12.0';
+  const VERSION = '1.12.1';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -1145,6 +1145,18 @@
     }
 
     function solveTextClue(step) {
+      if (/Cipher/i.test(step.type) && /saying of the realm/i.test(step.prompt)) {
+        const shifts = Array.from(step.prompt.matchAll(/\bby\s+(\d+)\s+places\b/gi));
+        const encoded = Array.from(step.form.querySelectorAll('p')).filter(p => p.style.fontFamily === 'monospace')
+          .map(p => p.textContent.trim()).filter(text => /[A-Za-z]/.test(text));
+        if (shifts.length !== 1 || Number(shifts[0][1]) > 25 || encoded.length !== 1
+          || !step.form.querySelector('input[name="answer"][placeholder="Write the decoded saying"]')) return null;
+        const shift = Number(shifts[0][1]);
+        return encoded[0].replace(/[A-Za-z]/g, letter => {
+          const base = letter >= 'a' ? 97 : 65;
+          return String.fromCharCode(base + (letter.charCodeAt(0) - base - shift + 26) % 26);
+        });
+      }
       const normalize = text => text.toLowerCase().replace(/[^a-z]/g, '');
       const candidates = clueFoes || [];
       const level = step.prompt.match(/(?:level|lvl)\s*(\d+)/i)?.[1];
@@ -1307,7 +1319,8 @@
         if (!route) return stop(`Unrecognized deed: ${step.prompt}`);
         return void planClueDeed(step, route);
       }
-      if (/Anagram|Cipher|Riddle/i.test(step.type) && !clueFoes) {
+      const sayingCipher = /Cipher/i.test(step.type) && /saying of the realm/i.test(step.prompt);
+      if (/Anagram|Cipher|Riddle/i.test(step.type) && !sayingCipher && !clueFoes) {
         status('Reading the Bestiary for this text clue…');
         return void readForClue(async read => {
           const page = await read('/bestiary.php');

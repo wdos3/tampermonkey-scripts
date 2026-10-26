@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.1 — 2026-10-27
+
+- Decode and submit the current saying Ciphers using the Caesar shift declared in the prompt. Preserve letter case, spacing, digits, and punctuation; skip the unrelated Bestiary lookup. Keep unique Bestiary matching for older foe-name ciphers. Ambiguous shifts and changed controls pause without submission.
+- Add regression coverage for the observed saying, every Caesar shift, malformed controls, and final reward confirmation, plus a local native-form Cipher browser scenario. All 424 tests and syntax checks pass; the local browser completed automatic submission/reward confirmation without warning/error logs. The decoded live saying was accepted and awarded its reward. Lights Out and Rune-lock are still pending real board/response examples; four sampled Easy trails did not expose them, and no Medium or Hard scrolls were available.
+
 ## 1.12.0 — 2026-10-25
 
 - Replace the manual nonogram filler with a saved Clue Trails task runner. Continue the current trail, optionally read owned scrolls up to a chosen completion limit, submit recognized puzzles, and confirm the game's final reward before counting a trail or reading another scroll. Default to one trail.
