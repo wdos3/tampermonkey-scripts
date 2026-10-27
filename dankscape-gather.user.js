@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.12.1
+// @version      1.12.2
 // @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
 // @description  Gathering, crafting, combat, raids, tasks, and Clue Trails with food, potions, and recovery.
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.12.1';
+  const VERSION = '1.12.2';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -1053,6 +1053,63 @@
       if (input.value !== String(value) || !input.checkValidity()) throw new Error('The native puzzle control rejected its value.');
     }
 
+    function codebreakerPuzzle(step) {
+      if (!step || !/^Codebreaker$/i.test(step.type)
+        || step.prompt !== 'A four-rune lock, 4 runes to choose from, repeats allowed. Each guess earns pegs: ● right rune, right place; ○ right rune, wrong place. 12 guesses before the lock resets.') return null;
+      const { form } = step;
+      const controls = Array.from(form.querySelectorAll('select'));
+      const alphabet = Array.from(controls[0]?.options || [], option => ({ value: option.value, label: option.textContent.trim() }));
+      if (controls.length !== 4 || alphabet.length !== 4 || new Set(alphabet.map(option => option.label)).size !== 4
+        || alphabet.some((option, i) => option.value !== String(i + 1) || !option.label)
+        || controls.some((control, i) => control.name !== `g${i}` || control.disabled
+          || JSON.stringify(Array.from(control.options, option => ({ value: option.value, label: option.textContent.trim() }))) !== JSON.stringify(alphabet))
+        || !form.querySelector('input[type="hidden"][name="guess"]#cb-guess')) return null;
+      const codes = Array.from({ length: 256 }, (_, n) => Array.from({ length: 4 }, (_, i) => String(1 + Math.floor(n / 4 ** (3 - i)) % 4)).join(''));
+      const labels = new Map(codes.map(code => [Array.from(code, digit => alphabet[Number(digit) - 1].label).join(''), code]));
+      if (labels.size !== codes.length) return null;
+      const tables = form.querySelectorAll('table');
+      if (tables.length > 1 || (tables.length && Array.from(tables[0].querySelectorAll('thead th'), cell => cell.textContent.trim()).join('|') !== '#|Guess|Pegs')) return null;
+      const rows = Array.from(form.querySelectorAll('tbody tr'));
+      const history = [];
+      for (const [i, row] of rows.entries()) {
+        const cells = row.querySelectorAll('td'), pegs = cells[2]?.textContent.trim();
+        const guess = labels.get(cells[1]?.textContent.trim());
+        if (cells.length !== 3 || cells[0].textContent.trim() !== String(i + 1) || !guess || !/^●{0,3}○{0,4}$/.test(pegs)
+          || pegs.length > 4) return null;
+        history.push({ guess, score: (pegs.match(/●/g) || []).length * 5 + (pegs.match(/○/g) || []).length });
+      }
+      const remaining = Array.from(form.querySelectorAll('p'), p => p.textContent.trim()).filter(text => /guesses left/.test(text));
+      if (history.length >= 12 || (history.length ? remaining.length !== 1 || remaining[0] !== `${12 - history.length} guesses left before the lock resets.` : remaining.length)) return null;
+      return { controls, codes, history };
+    }
+
+    function codebreakerScore(secret, guess) {
+      let exact = 0, total = 0;
+      for (let i = 0; i < 4; i += 1) if (secret[i] === guess[i]) exact += 1;
+      for (const rune of ['1', '2', '3', '4']) total += Math.min(secret.split(rune).length - 1, guess.split(rune).length - 1);
+      return exact * 5 + total - exact;
+    }
+
+    function solveCodebreaker(puzzle) {
+      const candidates = puzzle.codes.filter(code => puzzle.history.every(entry => codebreakerScore(code, entry.guess) === entry.score));
+      if (candidates.length === 1) return candidates[0];
+      if (!candidates.length || puzzle.history.length >= 11) return null;
+      const possible = new Set(candidates);
+      let best = null, worst = Infinity;
+      // Minimize the largest remaining group, preferring a possible solution on ties.
+      for (const guess of puzzle.codes) {
+        if (puzzle.history.some(entry => entry.guess === guess)) continue;
+        const buckets = new Map();
+        for (const code of candidates) {
+          const score = codebreakerScore(code, guess);
+          buckets.set(score, (buckets.get(score) || 0) + 1);
+        }
+        const size = Math.max(...buckets.values());
+        if (size < worst || (size === worst && possible.has(guess) && !possible.has(best))) { best = guess; worst = size; }
+      }
+      return best;
+    }
+
     function clueBoard(page = document) {
       const content = page.querySelector('section.content');
       if (!/Clue Trails/.test(content?.querySelector('h1,h2')?.textContent || '')) return null;
@@ -1194,9 +1251,13 @@
           || !Number.isInteger(identity[1]) || !Number.isInteger(identity[2]) || identity[1] < 1 || identity[1] > identity[2] || identity[2] > 4
           || !identity.slice(3).every(text => typeof text === 'string' && text.length > 0)) return false;
       }
-      if (value.command && (!['read', 'answer'].includes(value.command.kind) || typeof value.command.signature !== 'string'
+      if (value.command && (!['read', 'answer', 'guess'].includes(value.command.kind) || typeof value.command.signature !== 'string'
         || value.command.signature.length > 4000 || !['easy', 'medium', 'hard'].includes(value.command.tier)
         || !count(value.command.index) || !count(value.command.total))) return false;
+      if (value.command?.kind === 'guess' && (!/^[1-4]{4}$/.test(value.command.guess) || !Array.isArray(value.command.history)
+        || value.command.history.length >= 12 || !value.command.history.every(entry => /^[1-4]{4}$/.test(entry?.guess)
+          && Number.isInteger(entry.score) && entry.score >= 0 && entry.score < 20 && entry.score % 5 + Math.floor(entry.score / 5) <= 4)
+        || value.command.history.some(entry => entry.guess === value.command.guess))) return false;
       if (value.current === null) return true;
       const current = value.current;
       return Boolean(current && current.kind === 'deed' && ['arena', 'gather', 'craft', 'altar', 'shop'].includes(current.mode)
@@ -1223,12 +1284,19 @@
         questQueue.clueSignature = board.step?.signature || '';
         return saveQuestQueue();
       }
-      const confirmed = command.kind === 'read'
+      let confirmed = command.kind === 'read'
         ? board.step?.tier === command.tier && board.step.index === 1
         : board.step ? board.step.tier === command.tier && board.step.index === command.index + 1 && board.step.total === command.total
           : command.index === command.total && reward;
+      if (command.kind === 'guess' && board.step?.signature === command.signature) {
+        const puzzle = codebreakerPuzzle(board.step);
+        confirmed = Boolean(puzzle && puzzle.history.length === command.history.length + 1
+          && JSON.stringify(puzzle.history.slice(0, -1)) === JSON.stringify(command.history)
+          && puzzle.history.at(-1).guess === command.guess
+          && puzzle.codes.some(code => puzzle.history.every(entry => codebreakerScore(code, entry.guess) === entry.score)));
+      }
       if (!confirmed) return false;
-      if (command.kind === 'answer' && !board.step) questQueue.trailsCompleted += 1;
+      if (command.kind !== 'read' && !board.step) questQueue.trailsCompleted += 1;
       questQueue.completed += 1;
       questQueue.current = null;
       questQueue.clueSignature = board.step?.signature || '';
@@ -1238,11 +1306,12 @@
       return saveQuestQueue();
     }
 
-    function submitClueCommand(button, kind, step = null, tier = step?.tier) {
+    function submitClueCommand(button, kind, step = null, tier = step?.tier, guess = null) {
       const target = { form: button?.form, button };
       if (!validForm(target, 'clue')) return stop('The clue form changed. No request was sent.');
       if (step) questQueue.clueSignature = step.signature;
       questQueue.command = { kind, tier, index: step?.index || 0, total: step?.total || 0, signature: step?.signature || '' };
+      if (guess) Object.assign(questQueue.command, guess);
       questQueue.uncertain = true;
       navigateQuest('board', target);
     }
@@ -1318,6 +1387,15 @@
         const route = clueDeedRoute(step.prompt);
         if (!route) return stop(`Unrecognized deed: ${step.prompt}`);
         return void planClueDeed(step, route);
+      }
+      if (/^Codebreaker$/i.test(step.type)) {
+        const puzzle = codebreakerPuzzle(step), guess = puzzle && solveCodebreaker(puzzle);
+        if (!guess) return stop('The Codebreaker controls or peg history are unrecognized, inconsistent, or too close to a reset.');
+        try { puzzle.controls.forEach((control, i) => setClueInput(control, guess[i])); }
+        catch (error) { return stop(error.message); }
+        if (!run?.active || !questQueue.active || !step.form.isConnected || clueBoard()?.step?.signature !== step.signature
+          || !step.button || step.button.disabled) return stop('The Codebreaker changed before submission.');
+        return submitClueCommand(step.button, 'guess', step, step.tier, { guess, history: puzzle.history });
       }
       const sayingCipher = /Cipher/i.test(step.type) && /saying of the realm/i.test(step.prompt);
       if (/Anagram|Cipher|Riddle/i.test(step.type) && !sayingCipher && !clueFoes) {

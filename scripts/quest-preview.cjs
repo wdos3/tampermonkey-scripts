@@ -8,7 +8,7 @@ const { questContent, escapeHTML } = require('../tests/quest-fixture.cjs');
 const { slayerContent } = require('../tests/slayer-fixture.cjs');
 const { diaryContent } = require('../tests/diary-fixture.cjs');
 const { craftContent } = require('../tests/craft-fixture.cjs');
-const { clueContent, nonogramContent, cipherContent } = require('../tests/clue-fixture.cjs');
+const { clueContent, nonogramContent, cipherContent, codebreakerContent, wireCodebreaker } = require('../tests/clue-fixture.cjs');
 const potions = [
   { id: 'combat', name: 'Super Combat Elixir', stat: 'combat', boost: 8, quantity: 20 },
   { id: 'attack', name: 'Super Attack Elixir', stat: 'attack', boost: 7, quantity: 20 },
@@ -16,7 +16,8 @@ const potions = [
 ];
 
 let clueStep = 1, bones = 5, deedProgress = 0, cluePuzzle = 'nonogram';
-const clueMarkup = () => clueStep === 1 ? (cluePuzzle === 'cipher' ? cipherContent() : nonogramContent()) : clueStep === 2
+let runeHistory = [];
+const clueMarkup = () => clueStep === 1 ? (cluePuzzle === 'cipher' ? cipherContent() : cluePuzzle === 'codebreaker' ? codebreakerContent(runeHistory) : nonogramContent()) : clueStep === 2
   ? clueContent({ index: 2, progress: deedProgress }) : clueContent({ idle: true });
 const altarMarkup = () => `<h1>The Altar</h1><table><tr><td>Big Bones</td><td>${bones}</td><td>+15</td><td>
   <form method="post" class="altar-bury" data-ajax><input name="csrf" type="hidden" value="local-token"><input name="action" type="hidden" value="bury">
@@ -27,6 +28,7 @@ function cluePreview(markup, message = '') {
     <section class="content">${markup}</section><div id="flash-stack">${message ? `<div class="flash flash-ok">${message}</div>` : ''}</div>
     <script>window.GM_getValue=(key,fallback)=>JSON.parse(localStorage.getItem('clue-preview:'+key)||'null')??fallback;
       window.GM_setValue=(key,value)=>localStorage.setItem('clue-preview:'+key,JSON.stringify(value));window.GM_registerMenuCommand=()=>{};
+      (${wireCodebreaker.toString()})(document);
       const out=document.getElementById('nono-cells');if(out)document.querySelectorAll('button.nono').forEach(b=>b.addEventListener('click',()=>{const bits=out.value.split(''),i=+b.dataset.i;bits[i]=bits[i]==='1'?'0':'1';out.value=bits.join('');b.style.background=bits[i]==='1'?'#f0c860':'#1a120a';}));
       document.addEventListener('submit',async e=>{const f=e.target;if(!f.matches('[data-ajax]'))return;e.preventDefault();const b=e.submitter,body=new URLSearchParams(new FormData(f,b));b.disabled=true;
         const r=await fetch(location.href,{method:'POST',body});const d=new DOMParser().parseFromString(await r.text(),'text/html');
@@ -49,14 +51,25 @@ const server = http.createServer((request, response) => {
           response.writeHead(200, { 'Content-Type': 'text/html' }).end(cluePreview(altarMarkup(), 'You bury 1 Big Bones.'));
         } else {
           if (clueStep === 1 && cluePuzzle === 'cipher' && fields.get('answer') === 'NO CAPE WITHOUT A HUNDRED NIGHTS') clueStep = 3;
-          else if (clueStep === 1 && cluePuzzle === 'nonogram' && fields.get('cells') === '0011111000000111101101001') clueStep = 2;
+          else if (clueStep === 1 && cluePuzzle === 'codebreaker') {
+            const secret = '3433', guess = fields.get('guess');
+            if (!/^[1-4]{4}$/.test(guess) || runeHistory.some(entry => entry.guess === guess)) { response.writeHead(400).end('Invalid or repeated rune guess.'); return; }
+            if (guess === secret) clueStep = 2;
+            else {
+              const exact = Array.from(secret).filter((rune, i) => rune === guess[i]).length;
+              const total = ['1', '2', '3', '4'].reduce((sum, rune) => sum + Math.min(secret.split(rune).length - 1, guess.split(rune).length - 1), 0);
+              runeHistory.push({ guess, exact, misplaced: total - exact });
+            }
+          } else if (clueStep === 1 && cluePuzzle === 'nonogram' && fields.get('cells') === '0011111000000111101101001') clueStep = 2;
           else if (clueStep === 2 && deedProgress >= 20) clueStep = 3;
           response.writeHead(303, { Location: '/clue.php' }).end();
         }
       });
       return;
     }
-    if (url.pathname === '/clue.php' && url.searchParams.get('puzzle') === 'cipher') { cluePuzzle = 'cipher'; clueStep = 1; }
+    if (url.pathname === '/clue.php' && ['cipher', 'codebreaker'].includes(url.searchParams.get('puzzle'))) {
+      cluePuzzle = url.searchParams.get('puzzle'); clueStep = 1; runeHistory = []; bones = 5; deedProgress = 0;
+    }
     response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' }).end(cluePreview(url.pathname === '/altar.php' ? altarMarkup() : clueMarkup(),
       url.pathname === '/clue.php' && clueStep === 3 ? 'The trail ends at a buried casket: 2,160g and a Emerald.' : ''));
     return;

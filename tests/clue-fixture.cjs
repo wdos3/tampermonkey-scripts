@@ -23,4 +23,20 @@ function cipherContent() {
     body: '<p style="font-family:monospace">YZ NLAP HTESZFE L SFYOCPO YTRSED</p><input name="answer" placeholder="Write the decoded saying">' });
 }
 
-module.exports = { clueContent, nonogramContent, cipherContent };
+function codebreakerContent(history = []) {
+  const runes = ['🔥', '💧', '🌿', '⚡'];
+  return clueContent({ type: 'Codebreaker',
+    prompt: 'A four-rune lock, 4 runes to choose from, repeats allowed. Each guess earns pegs: ● right rune, right place; ○ right rune, wrong place. 12 guesses before the lock resets.',
+    body: `<p>Runes: 1=🔥 2=💧 3=🌿 4=⚡</p><div>${Array.from({ length: 4 }, (_, i) => `<select name="g${i}">${runes.map((rune, j) => `<option value="${j + 1}">${rune}</option>`).join('')}</select>`).join('')}<input type="hidden" name="guess" id="cb-guess"></div>
+      ${history.length ? `<table class="data"><thead><tr><th>#</th><th>Guess</th><th>Pegs</th></tr></thead><tbody>${history.map(({ guess, exact, misplaced }, i) => `<tr><td>${i + 1}</td><td>${Array.from(guess, digit => runes[Number(digit) - 1]).join('')}</td><td>${'●'.repeat(exact)}${'○'.repeat(misplaced)}</td></tr>`).join('')}</tbody></table><p>${12 - history.length} guesses left before the lock resets.</p>` : ''}`
+  }).replace('🔍 Submit answer', '🔍 Try the lock');
+}
+
+function wireCodebreaker(document) {
+  const output = document.getElementById('cb-guess');
+  if (output) output.form.addEventListener('submit', () => {
+    output.value = ['g0', 'g1', 'g2', 'g3'].map(name => output.form.querySelector(`[name="${name}"]`).value).join('');
+  });
+}
+
+module.exports = { clueContent, nonogramContent, cipherContent, codebreakerContent, wireCodebreaker };

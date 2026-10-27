@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.12.2 — 2026-10-28
+
+- Automate the observed Easy **Codebreaker** rune lock: read the four native selectors and exact/misplaced peg history, narrow the 256 repeat-allowed codes, and choose each next guess by its worst remaining candidate group. Continue existing manual guesses and submit through the game's own serializer.
+- Save every guess and its preceding history before clicking. Confirm one matching new feedback row, the next step, or the final reward before continuing. Preserve cumulative limits and existing continuation/verification behavior; unknown feedback, resets, contradictions, changed controls, and unsafe final attempts pause without resubmission.
+- Add six regression cases, including exhaustive automatic completion of all 256 codes within six guesses. All 430 tests and syntax checks pass. The localhost browser automatically completed Codebreaker, an altar deed, reward collection, and one-trail stopping with no warning/error logs. Native live controls completed the active Codebreaker trail and all four remaining Easy scrolls, exposing Word Search, Cipher, Anagram, and Treasurer's Ledger. No scrolls remain; no Lights Out board appeared. Installed Tampermonkey execution of the new handler remains unverified.
+
 ## 1.12.1 — 2026-10-27
 
 - Decode and submit the current saying Ciphers using the Caesar shift declared in the prompt. Preserve letter case, spacing, digits, and punctuation; skip the unrelated Bestiary lookup. Keep unique Bestiary matching for older foe-name ciphers. Ambiguous shifts and changed controls pause without submission.

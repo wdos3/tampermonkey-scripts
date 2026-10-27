@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { fixture, lockManager, flush } = require('./harness.cjs');
 const { page } = require('./fixture.cjs');
-const { clueContent, nonogramContent, cipherContent } = require('./clue-fixture.cjs');
+const { clueContent, nonogramContent, cipherContent, codebreakerContent, wireCodebreaker } = require('./clue-fixture.cjs');
 const { craftContent } = require('./craft-fixture.cjs');
 const KEY = 'dankscape-assistant:quest-queue:v1';
 const html = content => `<section class="content">${content}</section><div id="flash-stack"></div>`;
@@ -14,6 +14,7 @@ function trail(t, options = {}) {
   let clicks = 0;
   let f;
   const wire = window => {
+    wireCodebreaker(window.document);
     const output = window.document.getElementById('nono-cells');
     if (output) for (const cell of window.document.querySelectorAll('button.nono')) cell.addEventListener('click', () => {
       clicks += 1;
@@ -47,6 +48,133 @@ function trail(t, options = {}) {
 }
 
 const runs = bits => (bits.match(/1+/g) || []).map(group => group.length);
+
+function runePegs(secret, guess) {
+  let exact = 0;
+  const unmatchedSecret = [], unmatchedGuess = [];
+  for (let i = 0; i < 4; i += 1) {
+    if (secret[i] === guess[i]) exact += 1;
+    else { unmatchedSecret.push(secret[i]); unmatchedGuess.push(guess[i]); }
+  }
+  let misplaced = 0;
+  for (const rune of unmatchedGuess) {
+    const i = unmatchedSecret.indexOf(rune);
+    if (i >= 0) { unmatchedSecret.splice(i, 1); misplaced += 1; }
+  }
+  return { guess, exact, misplaced };
+}
+
+test('Codebreaker continues the observed history and submits its unique remaining solution', async t => {
+  const history = [{ guess: '1122', exact: 0, misplaced: 0 }, { guess: '1333', exact: 2, misplaced: 1 }, { guess: '1134', exact: 1, misplaced: 1 }];
+  const f = trail(t, { content: codebreakerContent(history) });
+  await f.start(); await f.advance(100);
+  assert.equal(f.state.requests[0].guess, '3433');
+  assert.equal(f.queue().command.kind, 'guess');
+  assert.equal(f.queue().command.history.length, 3);
+  assert.equal(f.queue().uncertain, true);
+  f.respond(clueContent({ index: 2, progress: 20 })); await f.advance(500);
+  f.respond(clueContent({ idle: true }), 'The trail ends at a buried casket: 2,280g and a Emerald.'); await f.advance(500);
+  assert.equal(f.queue().trailsCompleted, 1);
+  assert.equal(f.queue().completed, 2);
+});
+
+test('Codebreaker solves all 256 repeat-allowed codes within the native guess budget', async t => {
+  const f = trail(t, { content: codebreakerContent() });
+  let maximum = 0;
+  for (let n = 0; n < 256; n += 1) {
+    const secret = n.toString(4).padStart(4, '0').replace(/[0-3]/g, digit => String(Number(digit) + 1));
+    if (n) { f.ui.getElementById('quest-discard').click(); f.respond(codebreakerContent()); }
+    const before = f.state.requests.length, history = [];
+    await f.start({ interval: 0.1 }); await f.advance(100);
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      assert.equal(f.state.requests.length, before + attempt + 1, `${secret}: ${f.status()}`);
+      const guess = f.state.requests.at(-1).guess;
+      assert.match(guess, /^[1-4]{4}$/);
+      assert.ok(!history.some(entry => entry.guess === guess), `Repeated guess for ${secret}`);
+      if (guess === secret) break;
+      history.push(runePegs(secret, guess));
+      f.respond(codebreakerContent(history)); await f.advance(500);
+    }
+    assert.equal(f.state.requests.at(-1).guess, secret);
+    maximum = Math.max(maximum, history.length + 1);
+    f.respond(clueContent({ index: 2, progress: 20 })); await f.advance(500);
+    f.respond(clueContent({ idle: true }), 'The trail ends at a buried casket: 2,280g and a Emerald.'); await f.advance(500);
+    assert.equal(f.queue().trailsCompleted, 1);
+  }
+  assert.ok(maximum <= 6, `Required ${maximum} guesses`);
+});
+
+test('a saved Codebreaker guess resumes only with one matching new feedback row and retained limits', async t => {
+  const first = trail(t, { content: codebreakerContent() });
+  await first.start({ actions: 2 }); await first.advance(100);
+  const session = first.session(), guess = first.state.requests[0].guess;
+  first.window.close(); await flush();
+  const next = trail(t, { session, content: codebreakerContent([runePegs('3433', guess)]) });
+  await next.advance(500);
+  assert.equal(next.state.requests.length, 1);
+  assert.notEqual(next.state.requests[0].guess, guess);
+  assert.equal(next.queue().completed, 1);
+  assert.equal(next.queue().config.actions, 2);
+  const second = next.state.requests[0].guess;
+  next.respond(codebreakerContent([runePegs('3433', guess), runePegs('3433', second)])); await next.advance(500);
+  assert.equal(next.queue().completed, 2);
+  assert.equal(next.state.requests.length, 1);
+  assert.match(next.status(), /Action limit/);
+});
+
+test('unchanged, reset, mismatched, contradictory or extra Codebreaker feedback never resends a guess', async t => {
+  const first = trail(t, { content: codebreakerContent() });
+  await first.start(); await first.advance(100);
+  const session = first.session(), guess = first.state.requests[0].guess;
+  first.window.close(); await flush();
+  const cases = [[], [{ guess: '4444', exact: 0, misplaced: 0 }],
+    [{ guess, exact: 3, misplaced: 1 }], [runePegs('3433', guess), { guess: '1234', exact: 1, misplaced: 1 }]];
+  for (const history of cases) {
+    const f = trail(t, { session, content: codebreakerContent(history) });
+    await f.advance(31000);
+    assert.equal(f.state.requests.length, 0);
+    assert.match(f.status(), /unconfirmed/);
+  }
+  const f = trail(t, { content: codebreakerContent() });
+  await f.start(); await f.advance(31000);
+  assert.equal(f.state.requests.length, 1);
+  assert.match(f.status(), /navigation did not finish/);
+});
+
+test('Codebreaker pauses on malformed controls and histories without submitting', async t => {
+  const edits = [
+    w => w.document.querySelector('[name="g3"]').remove(),
+    w => w.document.querySelector('[name="g2"]').name = 'other',
+    w => w.document.querySelector('[name="g1"] option').value = '9',
+    w => w.document.getElementById('cb-guess').remove(),
+    w => { w.document.querySelector('#clue-form').previousElementSibling.textContent = 'A changed rune-lock prompt.'; },
+    w => { w.document.querySelector('tbody tr td').textContent = '2'; },
+    w => { w.document.querySelector('tbody tr td:nth-child(3)').textContent = 'unknown'; },
+    w => { w.document.querySelector('#clue-form p:last-of-type').textContent = '12 guesses left before the lock resets.'; },
+  ];
+  for (const beforeScript of edits) {
+    const f = trail(t, { content: codebreakerContent([{ guess: '1122', exact: 0, misplaced: 0 }]), beforeScript });
+    await f.start(); await f.advance(100);
+    assert.equal(f.state.requests.length, 0);
+    assert.match(f.status(), /Codebreaker/);
+  }
+});
+
+test('Codebreaker uses the last attempt only for a proven solution and tolerates prior manual repeats', async t => {
+  const zero = { guess: '1122', exact: 0, misplaced: 0 };
+  const ambiguous = trail(t, { content: codebreakerContent(Array(11).fill(zero)) });
+  await ambiguous.start(); await ambiguous.advance(100);
+  assert.equal(ambiguous.state.requests.length, 0);
+  assert.match(ambiguous.status(), /too close to a reset/);
+  const unique = trail(t, { content: codebreakerContent([...Array(9).fill(zero),
+    { guess: '1333', exact: 2, misplaced: 1 }, { guess: '1134', exact: 1, misplaced: 1 }]) });
+  await unique.start(); await unique.advance(100);
+  assert.equal(unique.state.requests[0].guess, '3433');
+  const contradiction = trail(t, { content: codebreakerContent([zero, { guess: '1122', exact: 1, misplaced: 0 }]) });
+  await contradiction.start(); await contradiction.advance(100);
+  assert.equal(contradiction.state.requests.length, 0);
+});
+
 test('Start solves the observed nonogram through native clicks and persists intent before submitting once', async t => {
   const f = trail(t);
   await f.advance(1000);
