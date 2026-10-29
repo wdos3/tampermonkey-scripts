@@ -10,18 +10,13 @@ If you already have the working script, open it in Tampermonkey's dashboard, rep
 
 For a first installation, install [Tampermonkey](https://www.tampermonkey.net/), create a new script, paste the file's complete contents, and save. Its [official setup guidance](https://www.tampermonkey.net/faq.php) covers enabling userscripts if required by your browser.
 
-### Automatic updates from the private repository
+### Install and automatic updates
 
-Install **v1.9.3 or later once** to add the update metadata to your existing installation. You can paste the complete file as above, or open [the stable GitHub Raw link](https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js) while signed into GitHub and accept Tampermonkey's update of the existing script. Its name and namespace stay the same, preserving the script's identity and settings.
+Install [v1.12.3](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js) from this public repository. Existing installations pointing to the retired repository need this one-time reinstall. Accept Tampermonkey's update of the existing script; its name and namespace remain unchanged to preserve settings.
 
-1. Stay signed into a GitHub account with access to this repository in the **same browser profile** that runs Tampermonkey. The stable Raw link must open the userscript rather than a sign-in or 404 page.
-2. In the script's Tampermonkey **Settings → Updates**, enable **Check for updates**. If an old per-script URL override exists, set both **Update URL** and **Download URL** to the stable link above.
-3. In Tampermonkey's update settings, choose a regular check interval and enable **Automatic installation** if your version offers it. Tampermonkey 5.5 separates checking from automatic installation; see its [official changelog](https://www.tampermonkey.net/changelog.php?locale=en&more=true&show=dhdg).
-4. Run **Check for userscript updates** once to check the configured source. Future higher-version commits on `main` become available through the same link; reload DankScape after an update to run the new version.
+Enable **Check for updates** in the script's Tampermonkey settings. If a per-script URL override exists, replace both **Update URL** and **Download URL** with the install link above. Future higher-version commits on `main` use this URL without requiring GitHub sign-in. Run **Check for userscript updates** once, then reload DankScape after installation.
 
-The metadata uses GitHub's authenticated `github.com/.../raw/...` route. It contains no access token, and there is no custom updater running on the game page. Do not replace it with a temporary `raw.githubusercontent.com` URL containing `?token=...`. Private access still depends on your browser session: if update checks fail, sign into GitHub again and verify the stable link before checking again. A GitHub login in another browser, or Git Credential Manager in the terminal, does not authenticate Tampermonkey.
-
-For future releases, increase `@version`, the visible `VERSION`, and the package versions together before pushing the updated standalone file to `main`. Tampermonkey compares `@version`; editing the server file without increasing it does not publish a newer version. The [metadata documentation](https://www.tampermonkey.net/documentation.php?locale=en&q=update_url) describes `@updateURL` and `@downloadURL`.
+For future releases, increase `@version`, the visible `VERSION`, and the package versions together before pushing. Installed-profile update behavior has not been verified.
 
 The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, Slayer, Diaries, Crafting, or Clues. Ordinary page loads start stopped. **Start** begins the current mode, including Clue Trails; **Craft all** starts ordinary batch crafting. **Stop** or **Esc** stops a continuous run. **Alt + Shift + G** invokes the current action. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, task travel, saved verification handoffs, and opted-in native raid starts can continue across page loads.
 
@@ -100,7 +95,7 @@ Browser autoplay rules can require interaction on a new page, and a muted tab or
 
 ### If the panel is missing
 
-After saving the complete v1.12.2 script, reload DankScape. The header should show **v1.12.2**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
+After saving the complete v1.12.3 script, reload DankScape. The header should show **v1.12.3**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
 
 A startup exception now displays an error panel with **Retry startup** and logs the cause with the prefix `[DankScape Assistant]`. If no panel or **Show DankScape Assistant** menu command exists, check browser injection permissions: the script's enabled toggle alone does not establish that it executed. Tampermonkey documents Chrome's separate **Allow User Scripts** permission in its [official setup FAQ](https://www.tampermonkey.net/faq.php?q=Q209). Browser extension site access must also include DankScape.
 

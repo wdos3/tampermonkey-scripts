@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.12.3 — 2026-10-29
+
+- Move installation and automatic updates to the public `wdos3/tampermonkey-scripts` repository. Existing users need one reinstall from the new URL; script identity and saved settings are preserved.
+
 ## 1.12.2 — 2026-10-28
 
 - Automate the observed Easy **Codebreaker** rune lock: read the four native selectors and exact/misplaced peg history, narrow the 256 repeat-allowed codes, and choose each next guess by its worst remaining candidate group. Continue existing manual guesses and submit through the game's own serializer.

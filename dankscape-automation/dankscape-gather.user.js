@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.12.2
-// @updateURL    https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
-// @downloadURL  https://github.com/wdos3/dankscape-automation/raw/refs/heads/main/dankscape-gather.user.js
+// @version      1.12.3
+// @updateURL      https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js
+// @downloadURL    https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js
 // @description  Gathering, crafting, combat, raids, tasks, and Clue Trails with food, potions, and recovery.
 // @match        https://dankscape.com/*
 // @run-at       document-idle
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.12.2';
+  const VERSION = '1.12.3';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();

@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Filester: Download All Files
 // @namespace    local.filester.download-all
-// @version      1.1.2
-// @updateURL    https://github.com/wdos3/filester-userscripts/raw/refs/heads/main/filester-download-all-files.user.js
-// @downloadURL  https://github.com/wdos3/filester-userscripts/raw/refs/heads/main/filester-download-all-files.user.js
+// @version      1.1.3
+// @updateURL      https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/filester-userscripts/filester-download-all-files.user.js
+// @downloadURL    https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/filester-userscripts/filester-download-all-files.user.js
 // @description  Download every file in a Filester folder into a folder named after that Filester folder, with visible progress.
 // @match        https://filester.me/f/*
 // @match        https://www.filester.me/f/*
