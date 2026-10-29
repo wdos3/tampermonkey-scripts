@@ -519,6 +519,7 @@ test('a clue Workshop action crafts one item despite a large native inventory ma
   const first = trail(t, { content: clueContent({ prompt, goal: 40 }), read: url => url.pathname === '/craft.php' ? html(craftContent('enchanting', [recipe])) : null });
   await first.start(); await first.advance(500);
   const q = first.queue(); first.window.close(); await flush();
+  q.config.targetLevel = 99;
   let progress = 0;
   const f = fixture(t, { mode: 'craft', skill: 'enchanting', session: { [KEY]: JSON.stringify(q) },
     beforeScript(w) {

@@ -4,7 +4,7 @@ All four userscripts in one public repository. Each script is standalone; develo
 
 | Script | Version | Install | Documentation |
 | --- | --- | --- | --- |
-| DankScape Assistant | 1.12.3 | [Install](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js) | [Guide](dankscape-automation/README.md) |
+| DankScape Assistant | 1.13.0 | [Install](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js) | [Guide](dankscape-automation/README.md) |
 | Filester: Open Files in New Tabs | 1.1.3 | [Install](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/filester-userscripts/filester-open-files-new-tab.user.js) | [Guide](filester-userscripts/README.md) |
 | Filester: Download All Files | 1.1.3 | [Install](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/filester-userscripts/filester-download-all-files.user.js) | [Guide](filester-userscripts/README.md) |
 | Bunkr: Download All Files | 1.1.3 | [Install](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/bunkr-userscripts/bunkr-download-all-files.user.js) | [Guide](bunkr-userscripts/README.md) |

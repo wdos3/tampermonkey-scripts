@@ -1,6 +1,6 @@
 # DankScape Assistant
 
-A standalone Tampermonkey userscript for gathering, bulk crafting, arena combat, raids, quests, Slayer, Diaries, and Clue Trails. Version **1.12.2** adds automatic Codebreaker rune-lock solving using the native peg history. The trail runner submits recognized puzzles, travels to deed activities, checks authoritative progress, and collects the final reward. Unseen puzzle formats pause for manual completion. Continuous modes share preferences, support a 0.1-second delay, and retain their budgets across verification returns. Additional Google challenges remain manual. The file and Tampermonkey identity remain **DankScape Gathering Assistant** / `dankscape-gather.user.js`.
+A standalone Tampermonkey userscript for gathering, bulk crafting, arena combat, raids, quests, Slayer, Diaries, and Clue Trails. Version **1.13.0** adds gathering and crafting level targets, live XP remaining, and automatic stopping at the chosen level. The trail runner submits recognized puzzles, travels to deed activities, checks authoritative progress, and collects the final reward. Unseen puzzle formats pause for manual completion. Continuous modes share preferences, support a 0.1-second delay, and retain their budgets across verification returns. Additional Google challenges remain manual. The file and Tampermonkey identity remain **DankScape Gathering Assistant** / `dankscape-gather.user.js`.
 
 Version 1.2.1 strengthens panel startup and recovery. The panel appears on all DankScape pages; Start is available only on supported activity pages with an eligible target.
 
@@ -12,7 +12,7 @@ For a first installation, install [Tampermonkey](https://www.tampermonkey.net/),
 
 ### Install and automatic updates
 
-Install [v1.12.3](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js) from this public repository. Existing installations pointing to the retired repository need this one-time reinstall. Accept Tampermonkey's update of the existing script; its name and namespace remain unchanged to preserve settings.
+Install [v1.13.0](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js) from this public repository. Existing installations pointing to the retired repository need this one-time reinstall. Accept Tampermonkey's update of the existing script; its name and namespace remain unchanged to preserve settings.
 
 Enable **Check for updates** in the script's Tampermonkey settings. If a per-script URL override exists, replace both **Update URL** and **Download URL** with the install link above. Future higher-version commits on `main` use this URL without requiring GitHub sign-in. Run **Check for userscript updates** once, then reload DankScape after installation.
 
@@ -95,7 +95,7 @@ Browser autoplay rules can require interaction on a new page, and a muted tab or
 
 ### If the panel is missing
 
-After saving the complete v1.12.3 script, reload DankScape. The header should show **v1.12.3**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
+After saving the complete v1.13.0 script, reload DankScape. The header should show **v1.13.0**. Open Tampermonkey's popup and choose **Show DankScape Assistant**, or press **Alt + Shift + P**, to expand and restore the panel without resetting settings. If the game removes the panel during a run, the script restores it and pauses further actions until you inspect the result and restart.
 
 A startup exception now displays an error panel with **Retry startup** and logs the cause with the prefix `[DankScape Assistant]`. If no panel or **Show DankScape Assistant** menu command exists, check browser injection permissions: the script's enabled toggle alone does not establish that it executed. Tampermonkey documents Chrome's separate **Allow User Scripts** permission in its [official setup FAQ](https://www.tampermonkey.net/faq.php?q=Q209). Browser extension site access must also include DankScape.
 
@@ -129,6 +129,16 @@ Attack, food, potion, and time budgets remain cumulative across all bosses. Rais
 Open **Craft**, choose its skill tab, select the Assistant's **Recipe**, and press **Craft all**. The script uses fresh native forms and batches the smaller of 1,000, the form's allowed maximum, and the available ingredient ratios. For example, 10,000 raw fish become ten 1,000-operation batches. A recipe that yields 50 arrows counts each recipe operation once, rather than treating its 50 output arrows as 50 operations. No material purchases or automatic recipe changes occur.
 
 After every response, all ingredient counts must fall by exactly the submitted batch's requirements before another batch is allowed. This works when the game's transient message has disappeared. A final partial batch uses only the remaining craftable amount. Shared **Maximum actions** counts batches; time, delay, Stop, Web Locks, saved verification handoffs, and confirmed-response recovery apply. An unchanged or unidentifiable result is never blindly repeated. Energy/food/potion controls do not apply to Workshop operations. The Workshop has no hero sidebar, so Start and recovery verify the living active hero through Arena.
+
+## Gathering and crafting level targets
+
+Open **Run limits** and set **Target skill level (0 = off)** to a level from 1 to 200. The default 0 preserves unrestricted gathering/Craft all. The Assistant shows the current level, target, and XP still needed above Run limits; the estimate updates after confirmed results and valid target edits. This preference is shared across gathering and crafting skills, while each page keeps its own selected resource or recipe.
+
+The estimate uses cumulative thresholds `floor(sum(floor(k + 300 × 2^(k/7))) / 4)` for `k = 1 .. level - 1`, less the current skill's earned XP. The native level and current-level requirement must be readable and match the curve. Unknown or changed progress pauses a targeted run. Reaching or already exceeding the target stops before another action, meal, or crafting batch. Existing action/time/material limits can still end a run earlier.
+
+Targeted crafting first makes one recipe operation to measure actual XP, including bonuses. Later batches use the remaining XP and observed rate, still respecting the 1,000-operation and ingredient limits. Whole operations, rounding, or bonus changes can overshoot the exact XP threshold; the script checks the game's level after each confirmed batch and stops there. The calibration operation counts as a crafting batch. Without a level target, ordinary bulk crafting keeps its existing full-size batches.
+
+Level targets survive manual-verification continuation and confirmed lost-response recovery with the original run limits. Older saved runs default to off. Quest and clue activity stages follow their own objectives and ignore this standalone skill target.
 
 ## Automatic Clue Trails
 
@@ -182,6 +192,7 @@ Drinks use the current native **Quick drink** form and its selected inventory op
 | Energy reserve | 0 | Do not take an action that would leave less energy than this amount. |
 | Maximum actions | 100 | Counts confirmed gathers, arena strikes, boss strikes, and crafting batches. Engagement, eating, and drinking do not count. |
 | Maximum minutes | 30 | Includes responses, cooldowns, healing, regeneration, and manual verification. |
+| Target skill level | 0 (off) | Gathering and crafting only. Show remaining XP and stop at the chosen native level, up to 200. |
 | Maximum arena wins | 100 | Cumulative victories across Arena, Quests, Slayer, and Diaries. |
 | Maximum raids / Raids per boss | 1 | Includes the opened raid. In all-boss mode, X applies separately to each available boss; otherwise repeat only the current boss. Run budgets stay cumulative. |
 | Heal immediately | On | Eat as soon as the current page reports any missing HP, before another attack or gather. |

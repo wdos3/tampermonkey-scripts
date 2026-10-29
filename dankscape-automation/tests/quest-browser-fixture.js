@@ -10,7 +10,8 @@ let game = JSON.parse(sessionStorage.getItem(GAME_KEY) || 'null') || {
   automaticVerification: new URLSearchParams(location.search).get('verification') === 'automatic',
   raidCatalog: [{ key: 'first', name: 'Fixture Boss', limit: 1 }, { key: 'second', name: 'Other Boss', limit: 2 }, { key: 'locked', name: 'Locked Boss', locked: true }],
   raidCounts: {}, boss: null, nextRaid: 123,
-  recipes: [{ id: '14', name: 'Cook Shark', materials: [{ name: 'Raw Shark', amount: 1, owned: 10000 }] }],
+  craftXP: 0,
+  recipes: [{ id: '14', name: 'Cook Shark', xp: 18, materials: [{ name: 'Raw Shark', amount: 1, owned: 10000 }] }],
   diaries: ['Meadowbrook Fields', 'Volcanic Caverns'].map((name, index) => ({ name,
     monsters: [{ id: '1', name: 'Field Mouse', kills: index ? 9 : 10 }, { id: '2', name: 'Other Foe', kills: index ? 9 : 10 },
       { id: '3', name: 'Satisfied Foe', kills: 230 }], tiers: { Easy: { claimed: true }, Medium: { claimed: !index } } })),
@@ -61,7 +62,7 @@ function render() {
     }
   } else if (mode === 'craft') {
     document.querySelector('aside')?.remove();
-    section.innerHTML = craftContent(skill, game.recipes, `fixture-token-${game.requests}`);
+    section.innerHTML = craftContent(skill, game.recipes, `fixture-token-${game.requests}`, game.craftXP);
   } else if (mode === 'diary') {
     document.querySelector('aside')?.remove();
     section.innerHTML = diaryContent(game.diaries.map(zone => ({ ...zone, away: zone.name !== game.zone })), `fixture-token-${game.requests}`);
@@ -115,6 +116,7 @@ document.addEventListener('submit', async event => {
   if (mode === 'craft') {
     const recipe = game.recipes.find(recipe => recipe.id === payload.recipe_id);
     for (const item of recipe.materials) item.owned -= Number(payload.times) * item.amount;
+    game.craftXP += Number(payload.times) * 20;
     save();
     render();
     document.dispatchEvent(new CustomEvent('dank:swapped'));

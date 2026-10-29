@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.0 — 2026-10-29
+
+- Add an optional shared target level (1–200; 0 disables it) for standalone gathering and crafting. Display XP remaining using the observed cumulative curve and native current-level progress. Stop after confirmed results reach the target, including when restoring a saved run. Pause on missing or changed-curve progress; retain other limits and existing quest/clue objectives.
+- Measure actual crafting XP with one operation, then cap subsequent batches by the remaining XP and observed rate, as well as ingredients and the 1,000-operation limit. Preserve normal full-size batches when no level target is set.
+- Add 11 level-target regression cases and extend shared-setting and clue-continuation coverage. All 441 tests and syntax checks pass. Local browser runs reached Mining 2 in five gathers and Cooking 3 in two batches, retained unused materials, and stopped with no warning/error logs. Live inspection verified progress markup and XP requirements across all ten skills; installed Tampermonkey execution remains unverified.
+
 ## 1.12.3 — 2026-10-29
 
 - Move installation and automatic updates to the public `wdos3/tampermonkey-scripts` repository. Existing users need one reinstall from the new URL; script identity and saved settings are preserved.

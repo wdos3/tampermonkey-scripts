@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.12.3
+// @version      1.13.0
 // @updateURL      https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js
 // @downloadURL    https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js
 // @description  Gathering, crafting, combat, raids, tasks, and Clue Trails with food, potions, and recovery.
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.12.3';
+  const VERSION = '1.13.0';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -272,6 +272,15 @@
     const MISSING_QUEST_REASON = 'No longer listed on the quest board; completion unconfirmed.';
     const SKILLS = new Set(['mining', 'woodcutting', 'fishing', 'herblore']);
     const CRAFT_SKILLS = new Set(['fletching', 'smithing', 'cooking', 'jewelcrafting', 'alchemy', 'enchanting']);
+    const SKILL_XP = (() => {
+      const thresholds = [0, 0];
+      let points = 0;
+      for (let level = 1; level < 200; level += 1) {
+        points += Math.floor(level + 300 * 2 ** (level / 7));
+        thresholds.push(Math.floor(points / 4));
+      }
+      return thresholds;
+    })();
     const POTION_STATS = { combat: 'Combat', attack: 'Attack', strength: 'Strength', defense: 'Defence', ranged: 'Ranged', magic: 'Magic' };
     const COMBAT_STATS = ['attack', 'strength', 'defense'];
     const DIARY_TIERS = ['Easy', 'Medium', 'Hard', 'Extreme', 'Legendary', 'Insane'];
@@ -281,6 +290,7 @@
       reserve: { label: 'Keep this much energy', value: 0, min: 0, max: 1000000 },
       actions: { label: 'Maximum actions', value: 100, min: 1, max: 1000000 },
       minutes: { label: 'Maximum minutes', value: 30, min: 1, max: 1440 },
+      targetLevel: { label: 'Target skill level (0 = off)', value: 0, min: 0, max: 200, modes: ['gather', 'craft'], optional: true },
       meals: { label: 'Maximum food items per run', value: 100, min: 1, max: 1000000 },
       battles: { label: 'Maximum arena wins', value: 100, min: 1, max: 1000000, modes: ['arena', 'quest', 'slayer', 'diary', 'clue'] },
       quests: { label: 'Maximum quests', value: 20, min: 1, max: 1000, modes: ['quest'], optional: true },
@@ -385,9 +395,11 @@
           ' · ', element('a', { href: '/diaries.php' }, 'Diaries'), ' · ', element('a', { href: '/craft.php' }, 'Crafting'),
           ' · ', element('a', { href: '/clue.php' }, 'Clues')]),
         element('label', {}, [element('span', { id: 'target-label' }, 'Resource'), element('select', { id: 'target', 'aria-label': 'Resource' })]),
+        element('p', { id: 'level-progress', class: 'hint', role: 'status', hidden: '' }),
         element('div', { id: 'diary-settings', hidden: '' }, [element('label', {}, ['Diary tier',
           element('select', { id: 'diary-tier', 'aria-label': 'Diary tier' }, DIARY_TIERS.map(tier => element('option', { value: tier }, tier)))])]),
         element('details', { id: 'limits-settings' }, [element('summary', {}, 'Run limits'),
+          element('div', { id: 'level-settings', hidden: '' }, [numberSetting('targetLevel')]),
           element('div', { class: 'grid' }, ['interval', 'reserve', 'actions', 'minutes'].map(numberSetting)), battleSettings,
           element('div', { id: 'quest-settings', hidden: '' }, [numberSetting('quests')]),
           element('div', { id: 'clue-settings', hidden: '' }, [numberSetting('trails'), numberSetting('clueGold')]),
@@ -796,6 +808,31 @@
 
     function meter(selector, page = document) { return parseMeter(page.querySelector(selector)?.textContent ?? ''); }
     function energy(page = document) { return meter('#hud-energy', page); }
+
+    function skillProgress(page = document) {
+      const rows = Array.from(page.querySelectorAll('section.content .stat-row'))
+        .filter(row => row.firstElementChild?.textContent.trim().toLowerCase() === skill);
+      if (rows.length !== 1) return null;
+      const text = rows[0].querySelector('strong')?.textContent.trim() || '';
+      const level = Number(text.match(/^Level\s+(\d+)\b/i)?.[1]);
+      if (!Number.isInteger(level) || level < 1 || level > 200) return null;
+      if (level === 200) return { level, total: SKILL_XP[200] };
+      const match = text.match(/^Level\s+\d+\s*·\s*([\d,]+)\s*\/\s*([\d,]+)\s*XP$/i);
+      const current = match ? numberFrom(match[1]) : null, required = match ? numberFrom(match[2]) : null;
+      const valid = Number.isSafeInteger(current) && current >= 0 && current < required
+        && required === SKILL_XP[level + 1] - SKILL_XP[level];
+      return { level, total: valid ? SKILL_XP[level] + current : null };
+    }
+
+    function levelGoal(config, page = document) {
+      if (questQueue || !['gather', 'craft'].includes(mode) || !Number.isInteger(config?.targetLevel)
+        || config.targetLevel < 1 || config.targetLevel > 200) return null;
+      const progress = skillProgress(page), target = config.targetLevel;
+      const remaining = progress?.level >= target ? 0 : progress?.total != null ? SKILL_XP[target] - progress.total : null;
+      const reason = remaining === 0 ? `Target ${skill} level ${target} reached (level ${progress.level}).`
+        : remaining === null ? `Cannot verify ${skill} XP against the level curve. Target-level run paused.` : '';
+      return { target, level: progress?.level, remaining, reason };
+    }
     function health(page = document) { return meter('aside.sidebar .hp-bar .hp-text', page); }
 
     function arenaState(page = document) {
@@ -2395,6 +2432,11 @@
       if (progress?.drunk || progress?.config?.potions?.length) ui.stats.textContent += ` · ${progress.drunk || 0} potions drunk`;
       if (mode === 'raid') ui.stats.textContent += ` · ${progress?.raidsCompleted || 0} raids completed`;
       if (mode === 'craft') ui.stats.textContent = `${progress?.completed || 0} confirmed crafting batches`;
+      const goal = levelGoal((run?.active || pending ? run?.config : checkpoint?.config) || { targetLevel: Number(ui.targetLevel.value) });
+      ui['level-settings'].hidden = !['gather', 'craft'].includes(mode) || Boolean(questQueue);
+      ui['level-progress'].hidden = !goal;
+      ui['level-progress'].textContent = goal ? goal.remaining === null ? goal.reason
+        : `${skill[0].toUpperCase() + skill.slice(1)} ${goal.level} → ${goal.target} · ${goal.remaining.toLocaleString('en-US')} XP remaining` : '';
       const busy = starting || restoring || Boolean(run?.active) || Boolean(pending) || Boolean(questNavigationDeadline) || Boolean(potionRead);
       const guard = humanCheck();
       checkSounds?.update(guard.required);
@@ -2565,7 +2607,10 @@
       if ((checkpoint || checkpointError) && !savedRun) return status('Use Restore & resume or discard the saved run before starting.');
       if (['altar', 'shop'].includes(mode) && questQueue?.source !== 'clue') return status('Start Clue Trails from its board first.');
       const config = savedRun ? { ...DEFAULTS, ...savedRun.config } : settingsFromUI();
-      if (!config || (!targets().some(target => target.key === config.target && target.available) && !endedSavedRaid(savedRun))) return;
+      if (!config) return;
+      const initialGoal = !savedRun && levelGoal(config);
+      if (initialGoal?.reason) return status(initialGoal.reason);
+      if (!targets().some(target => target.key === config.target && target.available) && !endedSavedRaid(savedRun)) return;
       if (mode === 'craft' && (!savedRun || !taskHero) && !await prepareActivityHero()) return;
       await holdGameLock(() => {
         try {
@@ -2650,6 +2695,12 @@
         if (!travel || !validForm(travel, 'travel')) return status(`The saved area (${checkpoint.zone}) is unavailable. Restore it using the game’s travel controls.`);
         await beginRestore(() => send(travel, 'travel'));
         return;
+      }
+      const restoredGoal = checkpoint.canResume && levelGoal(checkpoint.config);
+      if (restoredGoal?.remaining === 0) {
+        run = { ...checkpoint, active: false, finishReason: restoredGoal.reason };
+        if (!clearCheckpoint()) return status(checkpointError);
+        return status(run.finishReason);
       }
       if (mode === 'craft' && checkpoint.canResume && craftingTargets().find(target => target.key === checkpoint.config.target)?.maximum === 0) {
         run = { ...checkpoint, active: false, finishReason: 'All craftable materials used.' };
@@ -2872,6 +2923,7 @@
       }
       pending = { kind, name: target.name, purpose: target.purpose, stat: target.stat, boost: target.boost,
         recipe: kind === 'craft' ? target.key : null, materials: target.materials, batch: target.batch,
+        skillXP: kind === 'craft' && levelGoal(run.config) ? skillProgress()?.total : null,
         deedKey: ['bury', 'buy'].includes(kind) ? target.key : null, stock: target.maximum,
         unitCost: target.unitCost, gold: kind === 'buy' ? merchantGold() : null,
         raidAll: kind === 'raid-summon' && checkpoint.config.raidAll,
@@ -3004,6 +3056,8 @@
         return;
       }
       if (questRead) { schedule(); return; }
+      const goal = levelGoal(run.config);
+      if (goal?.reason) return stop(goal.reason);
       if (questQueue?.source === 'clue' && !['gather', 'arena'].includes(mode)) {
         if (questQueue.current?.unmeasured) return void checkClueProgress();
         if (questObjectiveFinished()) return navigateQuest('board');
@@ -3032,6 +3086,9 @@
         if (target.maximum === 0) return stop('All craftable materials used.');
         if (!target.available || !target.batch) return stop('The selected recipe is locked or its batch control is unavailable.');
         if (questQueue?.source === 'clue') target.batch = 1;
+        // One operation measures actual XP, including bonuses; later batches
+        // use that rate and recheck the native level after every response.
+        if (goal) target.batch = Math.min(target.batch, run.craftXP > 0 ? Math.max(1, Math.ceil(goal.remaining / run.craftXP)) : 1);
         if (now < run.nextAt) { status('Waiting before the next crafting batch.'); schedule(); return; }
         if (!waitForButton(target.button, now)) send(target, 'craft');
         return;
@@ -3332,6 +3389,11 @@
         return status('The raid summon completed. Use Restore & resume when ready.');
       }
       if (run) countConfirmedAction(run, prior.kind);
+      if (run?.active && prior.skillXP != null) {
+        const current = skillProgress()?.total;
+        if (current == null || current <= prior.skillXP) return stop('Crafting confirmed, but skill XP did not advance as expected. Target-level run paused.');
+        run.craftXP = (current - prior.skillXP) / prior.batch;
+      }
       if (questQueue) {
         questQueue.uncertain = false;
         if (prior.kind === 'buy') questQueue.goldSpent += prior.unitCost * prior.batch;
@@ -3383,7 +3445,9 @@
 
     function updateFinishReason() {
       if (!run || run.finishReason) return;
-      if (mode === 'raid' && raidState()?.id === run.raidId && raidState()?.hp === 0) {
+      const goal = levelGoal(run.config);
+      if (goal?.reason) run.finishReason = goal.reason;
+      else if (mode === 'raid' && raidState()?.id === run.raidId && raidState()?.hp === 0) {
         markRaidDefeated(run);
       } else if (mode === 'arena' && run.wins >= run.config.battles) run.finishReason = 'Arena win limit reached.';
       else if (run.completed >= run.config.actions) run.finishReason = 'Action limit reached.';
@@ -3544,14 +3608,14 @@
     });
     window.addEventListener('focus', () => {
       if (starting || run?.active || pending || restoring || checkpoint || questQueue || potionRead) return;
-      try { applySettings(readSettings()); }
+      try { applySettings(readSettings()); render(); }
       catch (error) { status(`Could not load shared settings: ${error.message}`); }
     });
     function saveEditedSettings(event) {
       if (!event.target.matches('input, select') || event.target.disabled) return;
       const config = settingsFromUI(false);
       if (!config) return;
-      try { saveSettings(config); }
+      try { saveSettings(config); if (event.target.id === 'targetLevel') render(); }
       catch (error) { status(`Could not save settings: ${error.message}`); }
     }
     ui.controls.addEventListener('input', saveEditedSettings);

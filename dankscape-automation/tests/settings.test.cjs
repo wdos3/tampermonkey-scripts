@@ -35,7 +35,7 @@ test('valid edits persist immediately across every skill, Arena, Raids, and Ques
   const values = {};
   const first = fixture(t, { values, mode: 'arena', potions: inventory });
   const settings = { interval: 0.1, reserve: 9, actions: 234, minutes: 78, meals: 345, battles: 67,
-    quests: 12, drinks: 89, maxRaids: 4, autoEat: false, autoHeal: false, autoRecover: false, wait: true };
+    quests: 12, drinks: 89, maxRaids: 4, targetLevel: 99, autoEat: false, autoHeal: false, autoRecover: false, wait: true };
   for (const [id, value] of Object.entries(settings)) edit(first, id, value);
   edit(first, 'potion-attack', inventory[0].name);
   edit(first, 'potion-strength', inventory[1].name);
@@ -104,7 +104,7 @@ test('saved budgets outside supported ranges cannot restore or send an action', 
   await original.advance(200);
   const saved = JSON.parse(original.session()[CHECKPOINT]);
   for (const [id, value] of Object.entries({ interval: 0.01, reserve: -1, actions: 0, minutes: 1441,
-    battles: 1000001, meals: 0.5, quests: 1001, drinks: 0, maxRaids: 0.5 })) {
+    battles: 1000001, meals: 0.5, quests: 1001, drinks: 0, maxRaids: 0.5, targetLevel: 201 })) {
     const record = { ...saved, config: { ...saved.config, [id]: value }, restoreRequested: true };
     const f = fixture(t, { session: { [CHECKPOINT]: JSON.stringify(record) } });
     await f.advance(1000);
@@ -119,7 +119,7 @@ test('older activity checkpoints restore missing newer settings and counters wit
   await original.start({ actions: 2 });
   await original.advance(200);
   const record = JSON.parse(original.session()[CHECKPOINT]);
-  for (const key of ['quests', 'drinks', 'maxRaids', 'autoRecover', 'potions']) delete record.config[key];
+  for (const key of ['quests', 'drinks', 'maxRaids', 'targetLevel', 'autoRecover', 'potions']) delete record.config[key];
   for (const key of ['drunk', 'recoveries', 'raidsCompleted']) delete record[key];
   original.window.close();
   await flush();
@@ -127,6 +127,7 @@ test('older activity checkpoints restore missing newer settings and counters wit
   assert.equal(f.ui.getElementById('drinks').value, '100');
   assert.equal(f.ui.getElementById('quests').value, '20');
   assert.equal(f.ui.getElementById('maxRaids').value, '1');
+  assert.equal(f.ui.getElementById('targetLevel').value, '0');
   assert.equal(f.ui.getElementById('autoRecover').checked, true);
   await f.resume();
   await f.advance(5000);
@@ -140,7 +141,7 @@ test('pending actions lock every run preference while human-check sound controls
     const f = fixture(t, { mode, noResponse: true });
     await f.start();
     for (const id of ['target', 'food', 'interval', 'reserve', 'actions', 'minutes', 'battles', 'meals', 'quests',
-      'drinks', 'maxRaids', 'autoEat', 'autoHeal', 'autoRecover', 'wait', 'potion-attack', 'potion-strength',
+      'drinks', 'maxRaids', 'targetLevel', 'autoEat', 'autoHeal', 'autoRecover', 'wait', 'potion-attack', 'potion-strength',
       'potion-defense', 'potion-ranged', 'potion-magic']) assert.equal(f.ui.getElementById(id).disabled, true, `${mode} ${id}`);
     assert.equal(f.ui.getElementById('alertSound').disabled, false);
     assert.equal(f.ui.getElementById('testSound').disabled, false);

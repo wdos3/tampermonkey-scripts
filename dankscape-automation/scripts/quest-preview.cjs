@@ -3,7 +3,7 @@
 const http = require('node:http');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { SKILLS, page, content, arenaContent, raidContent, foodMarkup, potionMarkup } = require('../tests/fixture.cjs');
+const { SKILLS, page, content, arenaContent, raidContent, foodMarkup, potionMarkup, skillProgressMarkup } = require('../tests/fixture.cjs');
 const { questContent, escapeHTML } = require('../tests/quest-fixture.cjs');
 const { slayerContent } = require('../tests/slayer-fixture.cjs');
 const { diaryContent } = require('../tests/diary-fixture.cjs');
@@ -94,7 +94,7 @@ const server = http.createServer((request, response) => {
   if (files[url.pathname]) {
     response.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' }).end(readFileSync(join(__dirname, files[url.pathname])));
   } else if (url.pathname === '/renderers.js') {
-    response.writeHead(200, { 'Content-Type': 'text/javascript' }).end([escapeHTML, questContent, slayerContent, diaryContent, craftContent, content, arenaContent, raidContent, foodMarkup, potionMarkup].map(fn => fn.toString()).join('\n')
+    response.writeHead(200, { 'Content-Type': 'text/javascript' }).end([escapeHTML, questContent, slayerContent, diaryContent, craftContent, content, arenaContent, raidContent, foodMarkup, potionMarkup, skillProgressMarkup].map(fn => fn.toString()).join('\n')
       + `\nconst QUEST_POTIONS = ${JSON.stringify(potions)};\nconst SKILLS = ${JSON.stringify(SKILLS)};`);
   } else response.writeHead(404).end();
 });

@@ -1,15 +1,17 @@
 'use strict';
 
 const { escapeHTML } = require('./quest-fixture.cjs');
+const { skillProgressMarkup } = require('./fixture.cjs');
 
 // Card, form, times, and material-row structure were inspected in the Workshop.
 // Recipe IDs, tokens, and hidden action values here are test data.
-function craftContent(skill, recipes, token = 'fixture-craft-token') {
-  return `<h1>The Workshop</h1><div data-fold-group="craft-${skill}">${recipes.map(recipe => {
+function craftContent(skill, recipes, token = 'fixture-craft-token', totalXP = null) {
+  return `<h1>The Workshop</h1>${totalXP === null ? '' : skillProgressMarkup(skill, totalXP)}<div data-fold-group="craft-${skill}">${recipes.map(recipe => {
     const max = Math.min(...recipe.materials.map(item => Math.floor(item.owned / item.amount)));
     return `<div class="card" data-fold="recipe-${recipe.id}" data-fold-name="${escapeHTML(recipe.name)}">
       <h3>${escapeHTML(recipe.name)} Lvl 1+</h3><div class="fold-body" id="recipe-${recipe.id}">
       <div class="stat-row"><span>Makes</span><strong>1× Fixture item</strong></div>
+      ${recipe.xp ? `<div class="stat-row"><span>XP</span><strong>+${recipe.xp} ${skill}</strong></div>` : ''}
       <p class="muted">Needs: ${recipe.materials.map(item => `<span>${item.amount}× ${escapeHTML(item.name)} (${item.owned})</span>`).join(', ')}</p>
       ${max > 0 && !recipe.locked ? `<form method="post" data-ajax><input type="hidden" name="csrf" value="${token}">
         <input type="hidden" name="action" value="craft"><input type="hidden" name="skill" value="${skill}">

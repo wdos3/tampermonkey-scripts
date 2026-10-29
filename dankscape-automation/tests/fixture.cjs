@@ -7,12 +7,23 @@ const SKILLS = {
   herblore: ['sunleaf', 'Sunleaf Patch', 'Pick'],
 };
 
-function content(skill = 'mining', token = 'fixture-token', cooldown = false, locked = false) {
+function skillProgressMarkup(skill, total) {
+  let points = 0, threshold = 0;
+  for (let level = 1; level < 200; level += 1) {
+    points += Math.floor(level + 300 * Math.pow(2, level / 7));
+    const next = Math.floor(points / 4);
+    if (total < next) return `<div class="stat-row" id="fixture-skill-progress"><span>${skill[0].toUpperCase() + skill.slice(1)}</span><strong>Level ${level} · ${(total - threshold).toLocaleString('en-US')} / ${(next - threshold).toLocaleString('en-US')} XP</strong></div>`;
+    threshold = next;
+  }
+  return `<div class="stat-row" id="fixture-skill-progress"><span>${skill}</span><strong>Level 200 · Maximum level</strong></div>`;
+}
+
+function content(skill = 'mining', token = 'fixture-token', cooldown = false, locked = false, totalXP = null) {
   if (locked) return '<h1>Gathering</h1><p>Herblore unlocks at combat level 30.</p>';
   const [key, name, label] = SKILLS[skill] || SKILLS.mining;
   return `<h1>Gathering</h1>
     <nav><a href="/gather.php?skill=mining">Mining</a> · <a href="/gather.php?skill=woodcutting">Woodcutting</a> · <a href="/gather.php?skill=fishing">Fishing</a></nav>
-    <div data-fold-group="gather-${skill}">
+    ${totalXP === null ? '' : skillProgressMarkup(skill, totalXP)}<div data-fold-group="gather-${skill}">
       <div class="card" data-fold="${key}" data-fold-name="${name}">
         <h3>${name} <small>Lv 1+</small></h3>
         <div class="stat-row"><span>Yields</span><strong>Fixture resource</strong></div>
@@ -101,4 +112,4 @@ function page(skill = 'mining', locked = false, mode = 'gather') {
   </body></html>`;
 }
 
-module.exports = { SKILLS, arenaContent, raidContent, content, foodMarkup, potionMarkup, page };
+module.exports = { SKILLS, arenaContent, raidContent, content, foodMarkup, potionMarkup, page, skillProgressMarkup };

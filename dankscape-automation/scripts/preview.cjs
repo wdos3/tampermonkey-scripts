@@ -3,7 +3,7 @@
 const http = require('node:http');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { arenaContent, raidContent, foodMarkup, potionMarkup, page } = require('../tests/fixture.cjs');
+const { arenaContent, raidContent, foodMarkup, potionMarkup, page, skillProgressMarkup } = require('../tests/fixture.cjs');
 
 const directory = join(__dirname, '..');
 const port = Number(process.env.DANKSCAPE_PREVIEW_PORT || 0);
@@ -61,7 +61,7 @@ const server = http.createServer((request, response) => {
     body = readFileSync(join(directory, 'tests', 'browser-fixture.js'));
     type = 'text/javascript; charset=utf-8';
   } else if (url.pathname === '/fixture-renderers.js') {
-    body = `'use strict';\n${arenaContent.toString()}\n${raidContent.toString()}\n${potionMarkup.toString()}\n`;
+    body = `'use strict';\n${arenaContent.toString()}\n${raidContent.toString()}\n${potionMarkup.toString()}\n${skillProgressMarkup.toString()}\n`;
     type = 'text/javascript; charset=utf-8';
   } else if (url.pathname === '/dankscape-gather.user.js') {
     body = readFileSync(join(directory, 'dankscape-gather.user.js'));

@@ -27,6 +27,8 @@ const boss = { id: '123', name: 'Fixture Boss', hp: 30, maximum: 30, state: 'Act
 let requests = Number(sessionStorage.getItem('dankscape-fixture:requests') || 0);
 document.getElementById('request-count').textContent = String(requests);
 let xp = 0;
+const gatheringSkill = new URLSearchParams(location.search).get('skill') || 'mining';
+if (mode === 'gather') contentElement.insertAdjacentHTML('afterbegin', skillProgressMarkup(gatheringSkill, xp));
 let foodRemaining = 20;
 const potions = [
   { id: 'super-attack', name: 'Super Attack Elixir', stat: 'attack', boost: 7, quantity: 20 },
@@ -225,8 +227,8 @@ document.addEventListener('submit', event => {
       } else {
         energyElement.textContent = `${current - 4} / 100`;
         xp += 18;
-        const skill = new URLSearchParams(location.search).get('skill') || 'mining';
-        document.getElementById('hud-xp').textContent = `${skill[0].toUpperCase() + skill.slice(1)} 1 · ${xp} / 83 XP`;
+        document.getElementById('fixture-skill-progress').outerHTML = skillProgressMarkup(gatheringSkill, xp);
+        document.getElementById('hud-xp').textContent = `${gatheringSkill} ${document.querySelector('#fixture-skill-progress strong').textContent.replace(/^Level /, '')}`;
       }
     }
     const token = `fixture-token-${requests}`;
