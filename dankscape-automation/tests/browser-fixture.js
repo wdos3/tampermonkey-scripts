@@ -20,10 +20,24 @@ document.getElementById('remove-panel').addEventListener('click', () => {
 const energyElement = document.getElementById('hud-energy');
 const contentElement = document.querySelector('section.content');
 const hpElement = document.querySelector('.hp-text');
-const mode = location.pathname === '/arena.php' ? 'arena' : location.pathname === '/raid.php' ? 'raid' : 'gather';
+const mode = location.pathname === '/arena.php' ? 'arena' : location.pathname === '/raid.php' ? 'raid' : location.pathname === '/wild.php' ? 'wild' : 'gather';
 let arena = { active: false, name: 'Field Mouse', hp: 8, log: '',
   zone: ['Meadowbrook Fields', 'Mossgill Sewers', 'Volcanic Caverns'][Number(new URLSearchParams(location.search).get('zone') || 1) - 1] || 'Meadowbrook Fields' };
 const boss = { id: '123', name: 'Fixture Boss', hp: 30, maximum: 30, state: 'Active', fighters: [] };
+const wilderness = JSON.parse(sessionStorage.getItem('dankscape-fixture:wilderness') || 'null') || { depth: 0, battle: null, bosses: [
+  { key: 'knight', name: 'Revenant Knight', required: 5, maximum: 20, slain: false },
+  { key: 'fiend', name: 'Chaos Fiend', required: 9, maximum: 30, slain: false },
+  { key: 'tyrant', name: 'Voidborn Tyrant', required: 13, maximum: 40, slain: false },
+] };
+if (mode === 'wild') contentElement.innerHTML = wildernessContent(wilderness);
+const wildernessHistory = JSON.parse(sessionStorage.getItem('dankscape-fixture:wilderness-history') || '[]');
+if (mode === 'arena' && wilderness.depth === 0 && wilderness.bosses.every(boss => boss.slain)) {
+  const result = document.createElement('p');
+  result.id = 'wilderness-result';
+  const count = action => wildernessHistory.filter(entry => entry.action === action).length;
+  result.textContent = `Wilderness complete: 3 bosses slain; ${count('hunt')} hunts, ${count('boss-attack')} further attacks, ${count('deeper')} depth moves, ${count('eat')} meals, ${count('drink')} potions, ${count('leave')} departures. Returned to arena.`;
+  contentElement.prepend(result);
+}
 let requests = Number(sessionStorage.getItem('dankscape-fixture:requests') || 0);
 document.getElementById('request-count').textContent = String(requests);
 let xp = 0;
@@ -158,6 +172,10 @@ document.addEventListener('submit', event => {
   const eating = event.target.classList.contains('quick-eat');
   const drinking = event.target.classList.contains('quick-drink');
   const payload = Object.fromEntries(new FormData(event.target));
+  if (mode === 'wild') {
+    wildernessHistory.push({ action: eating ? 'eat' : drinking ? 'drink' : payload.action, boss: payload.boss || '' });
+    sessionStorage.setItem('dankscape-fixture:wilderness-history', JSON.stringify(wildernessHistory));
+  }
   const previous = { nodes: Array.from(contentElement.childNodes), energy: energyElement.textContent, hp: hpElement.textContent,
     xp: document.getElementById('hud-xp').textContent, flash: document.getElementById('flash-stack').innerHTML };
   if (scenario === 'timeout') return;
@@ -182,7 +200,7 @@ document.addEventListener('submit', event => {
   }
   setTimeout(() => {
     if (scenario !== 'error' && scenario !== 'guard') {
-      if (summoning) {
+      if (summoning && mode === 'raid') {
         Object.assign(boss, { id: String(Number(boss.id) + 1), hp: 30, maximum: 30, state: 'Active', fighters: [] });
         saveRaidState();
         location.assign(`/raid.php?id=${boss.id}`);
@@ -199,6 +217,21 @@ document.addEventListener('submit', event => {
         potion.quantity -= 1;
         boosts = boosts.filter(boost => boost.stat !== potion.stat);
         boosts.push({ stat: potion.stat, boost: potion.boost, expiresAt: Date.now() + 300000 });
+      } else if (mode === 'wild') {
+        if (payload.action === 'enter') wilderness.depth = 1;
+        else if (payload.action === 'deeper') wilderness.depth += 1;
+        else if (payload.action === 'leave') wilderness.depth = 0;
+        else if (payload.action === 'hunt' || payload.action === 'boss-attack') {
+          if (payload.action === 'hunt') {
+            const target = wilderness.bosses.find(boss => boss.key === payload.boss);
+            wilderness.battle = { ...target, hp: target.maximum };
+          }
+          const battle = wilderness.battle;
+          battle.hp = Math.max(0, battle.hp - (['miss', 'repeat'].includes(scenario) ? 0 : 10));
+          hpElement.textContent = `${Number(hpElement.textContent.split('/')[0]) - 1} / 100 HP`;
+          if (!battle.hp) { wilderness.bosses.find(boss => boss.key === battle.key).slain = true; wilderness.battle = null; }
+        } else throw new Error(`Unexpected wilderness command ${payload.action}`);
+        sessionStorage.setItem('dankscape-fixture:wilderness', JSON.stringify(wilderness));
       } else if (mode === 'arena') {
         if (payload.action === 'engage') {
           arena = { active: true, name: payload.monster_id === '2' ? 'Other Foe' : 'Field Mouse', hp: 8, zone: arena.zone, log: 'The hero and foe have entered the arena.' };
@@ -234,6 +267,7 @@ document.addEventListener('submit', event => {
     const token = `fixture-token-${requests}`;
     if (mode === 'arena') contentElement.innerHTML = arenaContent(arena, token, true);
     else if (mode === 'raid') contentElement.innerHTML = raidContent(boss, token, true);
+    else if (mode === 'wild') contentElement.innerHTML = wildernessContent(wilderness, token);
     else {
       const fresh = contentElement.cloneNode(true);
       const button = fresh.querySelector('button[type="submit"]');
@@ -255,6 +289,8 @@ document.addEventListener('submit', event => {
       ? '<div class="flash flash-error">Not enough energy.</div>'
       : scenario === 'unconfirmed' || (mode === 'arena' && !eating && !drinking) ? ''
       : drunkPotion ? `<div class="flash flash-ok">You drink the ${drunkPotion.name}. +${drunkPotion.boost} ${drunkPotion.stat === 'defense' ? 'Defence' : drunkPotion.stat[0].toUpperCase() + drunkPotion.stat.slice(1)} — active for 5 more minutes.</div>`
+      : mode === 'wild' && !eating ? ['hunt', 'boss-attack'].includes(payload.action)
+        ? `<div class="flash flash-ok">${wilderness.battle ? `You hit the ${wilderness.battle.name} for ${['miss', 'repeat'].includes(scenario) ? 0 : 10}.` : `You fell the ${wilderness.bosses.find(boss => boss.key === payload.boss).name}!`}</div>` : ''
       : `<div class="flash flash-ok">${eating ? 'You eat the Shark and recover HP/energy.' : mode === 'raid' ? scenario === 'miss' ? 'You miss Fixture Boss.' : boss.hp === 0 ? 'You struck for 10 and felled Fixture Boss! Rewards are split by damage dealt.' : 'You hit Fixture Boss for 10.' : 'You gather 1 resource. +18 XP.'}</div>`;
     if (scenario === 'lost' && !eating && (drinking || mode !== 'arena' || payload.action === 'swing')) {
       // The simulated server committed the action, but the client never sees its response.

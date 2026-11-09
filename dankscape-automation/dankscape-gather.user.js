@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         DankScape Gathering Assistant
 // @namespace    local.dankscape.gathering
-// @version      1.13.0
+// @version      1.14.0
 // @updateURL      https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js
 // @downloadURL    https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js
-// @description  Gathering, crafting, combat, raids, tasks, and Clue Trails with food, potions, and recovery.
+// @description  Gathering, crafting, combat, raids, wilderness bosses, tasks, and clues with food, potions, and recovery.
 // @match        https://dankscape.com/*
 // @run-at       document-idle
 // @sandbox      DOM
@@ -18,7 +18,7 @@
   'use strict';
 
   const PANEL_ID = 'dankscape-gather-assistant';
-  const VERSION = '1.13.0';
+  const VERSION = '1.14.0';
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot?.getElementById('start')) return;
   existing?.remove();
@@ -294,7 +294,7 @@
       meals: { label: 'Maximum food items per run', value: 100, min: 1, max: 1000000 },
       battles: { label: 'Maximum arena wins', value: 100, min: 1, max: 1000000, modes: ['arena', 'quest', 'slayer', 'diary', 'clue'] },
       quests: { label: 'Maximum quests', value: 20, min: 1, max: 1000, modes: ['quest'], optional: true },
-      drinks: { label: 'Maximum potions per run', value: 100, min: 1, max: 1000000, modes: ['arena', 'raid', 'quest', 'slayer', 'diary', 'clue'], optional: true },
+      drinks: { label: 'Maximum potions per run', value: 100, min: 1, max: 1000000, modes: ['arena', 'raid', 'wild', 'quest', 'slayer', 'diary', 'clue'], optional: true },
       maxRaids: { label: 'Maximum raids', value: 1, min: 1, max: 1000000, modes: ['raid'], optional: true },
       trails: { label: 'Maximum clue trails', value: 1, min: 1, max: 1000, modes: ['clue'], optional: true },
       clueGold: { label: 'Merchant deed gold budget', value: 1000, min: 0, max: 1000000, modes: ['clue'], optional: true },
@@ -303,7 +303,7 @@
     const DEFAULTS = { target: '', ...Object.fromEntries(Object.entries(NUMBER_SETTINGS).map(([id, setting]) => [id, setting.value])),
       autoEat: true, autoHeal: true, autoRecover: true, food: '', wait: false, raidAll: false, potions: [], diaryTier: 'Easy' };
 
-    const mode = { '/gather.php': 'gather', '/arena.php': 'arena', '/raid.php': 'raid', '/craft.php': 'craft', '/altar.php': 'altar', '/shop.php': 'shop', '/clue.php': 'clue', '/quests.php': 'quest', '/slayer.php': 'slayer', '/diaries.php': 'diary' }[location.pathname] || 'hall';
+    const mode = { '/gather.php': 'gather', '/arena.php': 'arena', '/raid.php': 'raid', '/wild.php': 'wild', '/craft.php': 'craft', '/altar.php': 'altar', '/shop.php': 'shop', '/clue.php': 'clue', '/quests.php': 'quest', '/slayer.php': 'slayer', '/diaries.php': 'diary' }[location.pathname] || 'hall';
     const onTaskBoard = Object.hasOwn(TASK_BOARDS, mode);
     const skill = new URLSearchParams(location.search).get('skill') || (mode === 'craft' ? 'fletching' : 'mining');
     const settingsKey = `settings:${mode === 'gather' ? skill : mode === 'craft' ? `craft:${skill}` : mode}`;
@@ -393,7 +393,7 @@
           element('a', { href: '/arena.php' }, 'Combat'), ' · ', element('a', { href: '/raid.php' }, 'Raids'),
           ' · ', element('a', { href: '/quests.php' }, 'Quests'), ' · ', element('a', { href: '/slayer.php' }, 'Slayer'),
           ' · ', element('a', { href: '/diaries.php' }, 'Diaries'), ' · ', element('a', { href: '/craft.php' }, 'Crafting'),
-          ' · ', element('a', { href: '/clue.php' }, 'Clues')]),
+          ' · ', element('a', { href: '/clue.php' }, 'Clues'), ' · ', element('a', { href: '/wild.php' }, 'Wilderness')]),
         element('label', {}, [element('span', { id: 'target-label' }, 'Resource'), element('select', { id: 'target', 'aria-label': 'Resource' })]),
         element('p', { id: 'level-progress', class: 'hint', role: 'status', hidden: '' }),
         element('div', { id: 'diary-settings', hidden: '' }, [element('label', {}, ['Diary tier',
@@ -683,8 +683,9 @@
     }
 
     function validCheckpoint(value) {
-      if (!value || value.version !== 1 || !['gather', 'arena', 'raid', 'craft'].includes(value.mode)
+      if (!value || value.version !== 1 || !['gather', 'arena', 'raid', 'wild', 'craft'].includes(value.mode)
         || !validRunConfig(value.config) || !validRunProgress(value) || !validVerificationIntent(value.verification)) return false;
+      if (value.mode === 'wild' && (value.config.target !== 'daily-bosses' || !validWildernessProgress(value.wilderness))) return false;
       if (value.mode === 'raid' && value.config.raidAll && (!Array.isArray(value.raidCounts) || !Array.isArray(value.raidSkipped))) return false;
       if (value.raidPhase !== undefined && (value.mode !== 'raid' || !['catalog', 'summon'].includes(value.raidPhase))) return false;
       if (!Number.isSafeInteger(value.steps) || value.steps < 0 || value.steps > 1000000
@@ -743,7 +744,7 @@
     }
 
     function rememberActivity() {
-      if (!['gather', 'arena', 'raid', 'craft'].includes(mode)) return false;
+      if (!['gather', 'arena', 'raid', 'wild', 'craft'].includes(mode)) return false;
       const config = run?.config || settingsFromUI();
       if (!config || !config.target) return false;
       const selected = targets().find(target => target.key === config.target);
@@ -752,6 +753,7 @@
         targetName: selected?.name || config.target, character: characterName(), zone: mode === 'arena' ? arenaZone() : '',
         raidId: run?.raidId || raidState()?.id || '', raidsCompleted: run?.raidsCompleted || 0,
         raidCounts: run?.raidCounts || [], raidSkipped: run?.raidSkipped || [],
+        ...(mode === 'wild' ? { wilderness: JSON.parse(JSON.stringify(run?.wilderness || initialWildernessProgress())) } : {}),
         deadline: run?.deadline ?? Date.now() + config.minutes * 60000, finishReason: run?.finishReason || '',
         canResume: !pending, restoreRequested: false, verification: false, steps: 0 };
       if (!validCheckpoint(checkpoint)) {
@@ -842,6 +844,107 @@
       const name = heading.match(/Combat:\s*(.+)$/)?.[1]?.trim() || '';
       const log = stage?.querySelector('.combat-log')?.textContent.trim() || '';
       return { name, log, form: button?.closest('form'), button, active: Boolean(button), victory: !button && /\bYou slay\b/i.test(log) };
+    }
+
+    function wildernessState(page = document) {
+      const content = page.querySelector('section.content');
+      const entrance = content?.querySelector(':scope > .card');
+      if (entrance?.querySelector('h1')?.textContent.trim() !== 'The Wilderness') return null;
+      const control = (card, label) => {
+        const buttons = Array.from(card.querySelectorAll('form button[type="submit"]')).filter(button => button.textContent.trim() === label);
+        return buttons.length === 1 ? buttons[0] : null;
+      };
+      const enter = control(entrance, 'Enter the Wilderness');
+      const depths = Array.from(entrance.querySelectorAll('p')).map(p => p.textContent.trim().match(/^⚔ Exposed at\s+Wilderness depth (\d+)\s*\/\s*15\.$/)).filter(Boolean);
+      if (enter && depths.length === 0) return { depth: 0, enter, bosses: [], battle: null };
+      if (depths.length !== 1) return null;
+      const depth = Number(depths[0][1]);
+      if (depth < 1 || depth > 15) return null;
+      const sections = Array.from(content.querySelectorAll(':scope > .card')).filter(card => card.querySelector('h2')?.textContent.trim() === 'Wilderness bosses');
+      if (sections.length !== 1) return null;
+      const card = sections[0], headings = card.querySelectorAll(':scope > h3');
+      const state = { depth, deeper: control(entrance, 'Venture deeper ⤓'), leave: control(entrance, 'Retreat to the Inn'), bosses: [], battle: null };
+      if (headings.length) {
+        if (headings.length !== 1 || headings[0].querySelector('span')?.textContent.trim() !== '— in combat') return null;
+        const name = Array.from(headings[0].childNodes).filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim();
+        const hpRows = Array.from(card.querySelectorAll('.stat-row')).filter(row => row.firstElementChild?.textContent.trim() === 'Boss HP');
+        const hp = hpRows.length === 1 ? parseMeter(hpRows[0].querySelector('strong')?.textContent) : null;
+        const button = card.querySelector('button[data-label="Attack"]'), form = button?.form;
+        const key = form?.querySelector('input[name="boss"]')?.value;
+        if (!name || name.length > 200 || !key || key.length > 200 || !hp || hp.current === 0 || !button) return null;
+        state.battle = { name, key, hp: hp.current, maximum: hp.maximum, form, button };
+        return state;
+      }
+      for (const boss of card.querySelectorAll(':scope > .row > .card')) {
+        const name = boss.querySelector(':scope > h3')?.textContent.trim();
+        const requirement = Array.from(boss.querySelectorAll('.stat-row')).find(row => row.firstElementChild?.textContent.trim() === 'Requires')?.querySelector('strong')?.textContent.trim().match(/^Depth (\d+)$/);
+        const required = Number(requirement?.[1]);
+        const slain = Array.from(boss.querySelectorAll('p')).some(p => p.textContent.trim() === '✓ Slain today — it returns tomorrow.');
+        const button = control(boss, 'Hunt it'), form = button?.form;
+        const key = form?.querySelector('input[name="boss"]')?.value || '';
+        if (!name || name.length > 200 || !Number.isInteger(required) || required < 1 || required > 15
+          || (button && (!key || key.length > 200 || slain || required > depth))) return null;
+        state.bosses.push({ name, key, required, slain, form, button });
+      }
+      return state.bosses.length === 3 && new Set(state.bosses.map(boss => boss.name)).size === 3
+        && state.bosses.every(boss => boss.slain || boss.required > depth || boss.button) ? state : null;
+    }
+
+    function validWildernessProgress(value) {
+      const names = list => Array.isArray(list) && list.length <= 3 && new Set(list).size === list.length
+        && list.every(name => typeof name === 'string' && name.length > 0 && name.length <= 200);
+      return Boolean(value && Number.isInteger(value.depth) && value.depth >= 0 && value.depth <= 15
+        && names(value.attempted) && names(value.defeated) && typeof value.exited === 'boolean'
+        && (!value.exited || (value.depth === 0 && value.boss === null))
+        && (value.boss === null || (typeof value.boss?.name === 'string' && value.boss.name.length > 0 && value.boss.name.length <= 200
+          && typeof value.boss.key === 'string' && value.boss.key.length > 0 && value.boss.key.length <= 200)));
+    }
+
+    function initialWildernessProgress() {
+      const state = wildernessState();
+      return state && { depth: state.depth, attempted: state.battle ? [state.battle.name] : [],
+        defeated: state.bosses.filter(boss => boss.slain).map(boss => boss.name), exited: false,
+        boss: state.battle ? { name: state.battle.name, key: state.battle.key } : null };
+    }
+
+    function wildernessMatches(saved, state) {
+      return Boolean(state && saved.depth === state.depth && (saved.boss
+        ? state.battle?.key === saved.boss.key && state.battle.name === saved.boss.name
+        : !state.battle));
+    }
+
+    function wildernessAction() {
+      const state = wildernessState(), saved = run.wilderness;
+      if (!wildernessMatches(saved, state)) return stop('The wilderness depth or encounter changed unexpectedly. Inspect the page before resuming.');
+      if (saved.exited) {
+        stop('Wilderness complete. Returned safely; opening the arena.');
+        ownNavigation = true;
+        const link = ui.controls.querySelector('a[href="/arena.php"]');
+        link.click();
+        return null;
+      }
+      if (state.battle) return { ...state.battle, kind: 'wild-strike', cost: 0 };
+      const next = state.bosses.find(boss => boss.button && !boss.slain && !saved.defeated.includes(boss.name));
+      if (next) {
+        if (saved.attempted.includes(next.name)) return stop(`The ${next.name} encounter ended without a confirmed kill. No second hunt was started.`);
+        return { ...next, kind: 'wild-hunt', cost: 0 };
+      }
+      const kind = state.depth === 0 ? 'wild-enter' : state.depth < 15 ? 'wild-deeper' : 'wild-leave';
+      const button = kind === 'wild-enter' ? state.enter : kind === 'wild-deeper' ? state.deeper : state.leave;
+      if (!button) { stop('The wilderness travel control is unavailable. No action was sent.'); return null; }
+      return { kind, button, form: button.form, name: kind === 'wild-leave' ? 'the Inn' : 'the wilderness', cost: 0 };
+    }
+
+    function advanceWilderness(progress, prior, page = document) {
+      if (!prior.kind.startsWith('wild-')) return;
+      const state = wildernessState(page), saved = progress.wilderness;
+      saved.depth = state.depth;
+      if (state.battle) saved.boss = { name: state.battle.name, key: state.battle.key };
+      else {
+        if (['wild-hunt', 'wild-strike'].includes(prior.kind) && !saved.defeated.includes(prior.name)) saved.defeated.push(prior.name);
+        saved.boss = null;
+      }
+      if (prior.kind === 'wild-leave') saved.exited = true;
     }
 
     function raidState(page = document) {
@@ -1548,6 +1651,7 @@
     }
 
     function targets() {
+      if (mode === 'wild') return [{ key: 'daily-bosses', name: 'Daily bosses → depth 15 → return', available: Boolean(wildernessState()) }];
       if (mode === 'clue') return [{ key: 'auto', name: 'Continue trail, then any owned scroll', available: true },
         ...['easy', 'medium', 'hard'].map(tier => ({ key: tier, name: `Continue trail, then ${tier} scrolls`, available: true }))];
       if (mode === 'altar' || mode === 'shop') return deedTargets();
@@ -2404,7 +2508,7 @@
 
     function maintainPotions(now) {
       const selections = run.config.potions || [];
-      if (!['arena', 'raid'].includes(mode) || !selections.length) return false;
+      if (!['arena', 'raid', 'wild'].includes(mode) || !selections.length) return false;
       const boosts = potionBoosts();
       if (!boosts) { stop('Cannot read active potion boosts. No potion was sent.'); return true; }
       const combat = selections.some(potion => potion.stat === 'combat');
@@ -2431,6 +2535,7 @@
       ui.stats.textContent = `${progress?.completed || 0} confirmed actions · ${progress?.eaten || 0} food eaten · Energy ${vitals ? `${vitals.current}/${vitals.maximum}` : 'unavailable'}${hp ? ` · HP ${hp.current}/${hp.maximum}` : ''}${mode === 'arena' ? ` · ${progress?.wins || 0} wins` : ''}`;
       if (progress?.drunk || progress?.config?.potions?.length) ui.stats.textContent += ` · ${progress.drunk || 0} potions drunk`;
       if (mode === 'raid') ui.stats.textContent += ` · ${progress?.raidsCompleted || 0} raids completed`;
+      if (mode === 'wild') ui.stats.textContent += ` · Depth ${wildernessState()?.depth ?? '?'} / 15`;
       if (mode === 'craft') ui.stats.textContent = `${progress?.completed || 0} confirmed crafting batches`;
       const goal = levelGoal((run?.active || pending ? run?.config : checkpoint?.config) || { targetLevel: Number(ui.targetLevel.value) });
       ui['level-settings'].hidden = !['gather', 'craft'].includes(mode) || Boolean(questQueue);
@@ -2441,7 +2546,7 @@
       const guard = humanCheck();
       checkSounds?.update(guard.required);
       for (const control of ui.controls.querySelectorAll('input, select')) control.disabled = busy || Boolean(checkpoint || questQueue);
-      ui['potion-settings'].hidden = !['arena', 'raid', 'quest', 'slayer', 'diary', 'clue'].includes(mode);
+      ui['potion-settings'].hidden = !['arena', 'raid', 'wild', 'quest', 'slayer', 'diary', 'clue'].includes(mode);
       ui['load-potions'].hidden = !onTaskBoard;
       ui['load-potions'].disabled = busy || guard.required || Boolean(checkpoint || questQueue);
       ui.start.disabled = busy || guard.required || Boolean(checkpoint || questQueue || questError) || Boolean(checkpointError) || mode === 'hall' || !ui.target.value || !navigator.locks?.request;
@@ -2623,6 +2728,7 @@
           if (!clearCheckpoint()) return stop(checkpointError);
         }
         run = { active: true, config, ...runProgress(savedRun),
+          ...(mode === 'wild' ? { wilderness: savedRun?.wilderness || initialWildernessProgress() } : {}),
           raidsCompleted: savedRun?.raidsCompleted || 0, raidId: savedRun?.raidId || raidState()?.id,
           raidCounts: savedRun?.raidCounts || [], raidSkipped: savedRun?.raidSkipped || [],
           finishReason: savedRun?.finishReason || '', deadline: savedRun?.deadline ?? Date.now() + config.minutes * 60000,
@@ -2714,6 +2820,7 @@
         return status('The exact saved target or boss is unavailable. No different target was selected or attacked.');
       }
       const savedRun = checkpoint;
+      if (mode === 'wild' && !wildernessMatches(savedRun.wilderness, wildernessState())) return stop('The saved wilderness depth or boss no longer matches. No hunt or travel was repeated.');
       applySettings(savedRun.config);
       if (!savedRun.canResume || Date.now() >= savedRun.deadline) {
         if (!clearCheckpoint()) return status(checkpointError);
@@ -2819,6 +2926,18 @@
       }
       if (destination.origin !== location.origin || target.form.hasAttribute('data-confirm')) return false;
       const hasFields = (...names) => names.every(name => target.form.querySelector(`input[name="${name}"]`));
+      if (kind.startsWith('wild-')) {
+        if (mode !== 'wild' || destination.pathname !== '/wild.php' || !target.form.hasAttribute('data-ajax')
+          || target.form.hasAttribute('onsubmit') || ['formaction', 'formmethod', 'formtarget'].some(name => target.button.hasAttribute(name))
+          || !hasFields('csrf', 'action') || target.button.form !== target.form) return false;
+        const state = wildernessState();
+        if (!state) return false;
+        if (kind === 'wild-hunt') return !state.battle && hasFields('boss') && state.bosses.some(boss => boss.button === target.button
+          && boss.name === target.name && boss.key === target.key && !boss.slain && boss.required <= state.depth);
+        if (kind === 'wild-strike') return hasFields('boss') && state.battle?.button === target.button
+          && state.battle.name === target.name && state.battle.key === target.key;
+        return target.button === ({ 'wild-enter': state.enter, 'wild-deeper': state.depth < 15 ? state.deeper : null, 'wild-leave': state.depth === 15 ? state.leave : null }[kind]);
+      }
       if (kind === 'clue') return mode === 'clue' && destination.pathname === '/clue.php'
         && !target.form.hasAttribute('onsubmit') && target.button.form === target.form && !target.button.disabled
         && hasFields('csrf', 'action') && (target.form === clueBoard()?.step?.form
@@ -2892,7 +3011,7 @@
       if (kind === 'drink') {
         // The game's native Quick drink form supplies its current destination
         // and field names. Never construct a drink POST or persist its fields.
-        return ['arena', 'raid'].includes(mode) && target.form.matches('.quick-drink[data-ajax]')
+        return ['arena', 'raid', 'wild'].includes(mode) && target.form.matches('.quick-drink[data-ajax]')
           && !target.form.hasAttribute('onsubmit') && hasFields('csrf')
           && target.select === document.getElementById('quick-drink-select') && target.select.form === target.form
           && Boolean(target.select.name) && target.button.form === target.form && target.button.textContent.trim().toLowerCase() === 'drink'
@@ -2913,6 +3032,7 @@
         questQueue.uncertain = true;
         if (!saveQuestQueue()) return stop(questError);
       }
+      if (kind === 'wild-hunt') run.wilderness.attempted.push(target.name);
       if (kind === 'eat' || kind === 'drink') {
         target.select.value = target.selected.value;
         target.select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -2921,7 +3041,10 @@
         target.input.value = String(target.batch);
         target.input.dispatchEvent(new Event('change', { bubbles: true }));
       }
+      const wildernessBefore = kind.startsWith('wild-') ? wildernessState() : null;
       pending = { kind, name: target.name, purpose: target.purpose, stat: target.stat, boost: target.boost,
+        wilderness: wildernessBefore ? { depth: wildernessBefore.depth, key: target.key, hp: wildernessBefore.battle?.hp,
+          maximum: wildernessBefore.battle?.maximum } : null,
         recipe: kind === 'craft' ? target.key : null, materials: target.materials, batch: target.batch,
         skillXP: kind === 'craft' && levelGoal(run.config) ? skillProgress()?.total : null,
         deedKey: ['bury', 'buy'].includes(kind) ? target.key : null, stock: target.maximum,
@@ -2958,7 +3081,7 @@
         stop('The game did not accept the button click. No automatic retry was made.');
         return;
       }
-      const verb = { eat: 'Eating', drink: 'Drinking', gather: 'Gathering', craft: 'Crafting', bury: 'Burying', buy: 'Buying', engage: 'Engaging', strike: 'Attacking', raid: 'Attacking', 'raid-summon': 'Summoning', travel: 'Returning to', 'quest-accept': 'Accepting', 'quest-claim': 'Turning in' }[kind];
+      const verb = { eat: 'Eating', drink: 'Drinking', gather: 'Gathering', craft: 'Crafting', bury: 'Burying', buy: 'Buying', engage: 'Engaging', strike: 'Attacking', raid: 'Attacking', 'wild-enter': 'Entering', 'wild-deeper': 'Exploring', 'wild-leave': 'Returning to', 'wild-hunt': 'Hunting', 'wild-strike': 'Attacking', 'raid-summon': 'Summoning', travel: 'Returning to', 'quest-accept': 'Accepting', 'quest-claim': 'Turning in' }[kind];
       status(`${verb} ${target.name}; waiting for the game…`);
       schedule();
     }
@@ -2996,6 +3119,7 @@
     }
 
     function nextAction() {
+      if (mode === 'wild') return wildernessAction();
       if (mode === 'arena') {
         const battle = arenaState();
         if (battle.active) {
@@ -3111,7 +3235,10 @@
       }
       if (run.finishReason) return stop(run.finishReason);
       const target = nextAction();
-      if (!target) return stop(run.finishReason || 'The selected target or battle is no longer available.');
+      if (!target) {
+        if (run.active) stop(run.finishReason || 'The selected target or battle is no longer available.');
+        return;
+      }
       const vitals = energy();
       if (!vitals || target.cost === null) return stop('Cannot read energy or the action cost. No action was sent.');
       if (vitals.maximum - target.cost < run.config.reserve) return stop('The energy reserve is too high for this action.');
@@ -3121,7 +3248,7 @@
         return;
       }
       if (vitals.current - target.cost < run.config.reserve) return recover(vitals, now, 'energy');
-      if (maintainPotions(now)) return;
+      if ((mode !== 'wild' || ['wild-hunt', 'wild-strike'].includes(target.kind)) && maintainPotions(now)) return;
       if (!target.button) return stop('The selected target is no longer available.');
       if (!waitForButton(target.button, now)) send(target, target.kind);
     }
@@ -3134,6 +3261,24 @@
     }
 
     function confirmResult(prior, flashes, page = document) {
+      if (prior.kind.startsWith('wild-')) {
+        const state = wildernessState(page), before = prior.wilderness;
+        if (!state || characterName(page) !== prior.hero || !prior.hero) return false;
+        if (prior.kind === 'wild-enter') return before.depth === 0 && state.depth === 1 && !state.battle;
+        if (prior.kind === 'wild-deeper') return state.depth === before.depth + 1 && state.depth <= 15 && !state.battle;
+        if (prior.kind === 'wild-leave') return before.depth === 15 && state.depth === 0 && !state.battle;
+        if (state.depth !== before.depth) return false;
+        const slain = state.bosses.some(boss => boss.name === prior.name && boss.slain);
+        if (slain) return true;
+        const boss = state.battle;
+        if (!boss || boss.name !== prior.name || boss.key !== before.key) return false;
+        if (prior.kind === 'wild-hunt') return true;
+        if (boss.maximum !== before.maximum || boss.hp > before.hp) return false;
+        if (boss.hp < before.hp) return true;
+        const turn = new RegExp(`^You (?:hit|miss(?:ed)?) (?:the )?${escapeRegExp(prior.name)}(?=[\\s.!?,]|$)|^Your attack (?:misses|missed) (?:the )?${escapeRegExp(prior.name)}(?=[\\s.!?,]|$)`, 'i');
+        return flashes.some(flash => flash.classList.contains('flash-ok') && turn.test(flash.textContent.trim())
+          && (!prior.flashKeys.has(flashKey(flash)) || (page === document && prior.transportComplete)));
+      }
       if (prior.kind === 'bury') {
         const item = deedTargets(page).find(item => item.key === prior.deedKey && item.name === prior.name);
         return Boolean((item ? item.maximum === prior.stock - prior.batch : prior.stock === prior.batch)
@@ -3283,6 +3428,7 @@
       if (mode !== 'craft' && health(page).current === 0) return stop('The hero was defeated. No further action was sent.');
       if (!rememberActivity()) return stop(checkpointError || 'Could not save the exact activity for automatic recovery.');
       countConfirmedAction(checkpoint, prior.kind, page);
+      if (mode === 'wild') advanceWilderness(checkpoint, prior, page);
       if (mode === 'raid' && raidState(page)?.hp === 0) {
         if (checkpoint.finishReason !== 'Boss defeated.') markRaidDefeated(checkpoint);
       } else if (mode === 'arena' && checkpoint.wins >= checkpoint.config.battles) checkpoint.finishReason = 'Arena win limit reached.';
@@ -3347,6 +3493,7 @@
       if (guardFailure && (run?.active || restoring || checkpoint)
         && (prior.kind === 'travel' || !confirmResult(prior, flashes))) {
         pending = null;
+        if (prior.kind === 'wild-hunt') run.wilderness.attempted = run.wilderness.attempted.filter(name => name !== prior.name);
         if (questQueue) { questQueue.uncertain = false; saveQuestQueue(); }
         pauseForVerification();
         return;
@@ -3389,6 +3536,7 @@
         return status('The raid summon completed. Use Restore & resume when ready.');
       }
       if (run) countConfirmedAction(run, prior.kind);
+      if (run && mode === 'wild') advanceWilderness(run, prior);
       if (run?.active && prior.skillXP != null) {
         const current = skillProgress()?.total;
         if (current == null || current <= prior.skillXP) return stop('Crafting confirmed, but skill XP did not advance as expected. Target-level run paused.');
@@ -3439,7 +3587,7 @@
     function countConfirmedAction(progress, kind, page = document) {
       if (kind === 'eat') progress.eaten += 1;
       else if (kind === 'drink') progress.drunk += 1;
-      else if (!['engage', 'quest-accept', 'quest-claim'].includes(kind)) progress.completed += 1;
+      else if (!['engage', 'quest-accept', 'quest-claim', 'wild-enter', 'wild-deeper', 'wild-leave'].includes(kind)) progress.completed += 1;
       if (kind === 'strike' && arenaState(page).victory) progress.wins += 1;
     }
 
@@ -3486,7 +3634,7 @@
         saveQuestQueue();
       }
     } catch (error) { questError = `Could not read the quest queue: ${error.message}`; }
-    const targetLabel = { gather: 'Resource', arena: 'Enemy', raid: 'Boss', craft: 'Recipe', altar: 'Bones', shop: 'Supply', clue: 'Scroll selection', quest: 'Quest selection', slayer: 'Slayer tasks', diary: 'Area', hall: 'Target' }[mode];
+    const targetLabel = { gather: 'Resource', arena: 'Enemy', raid: 'Boss', wild: 'Wilderness', craft: 'Recipe', altar: 'Bones', shop: 'Supply', clue: 'Scroll selection', quest: 'Quest selection', slayer: 'Slayer tasks', diary: 'Area', hall: 'Target' }[mode];
     ui['target-label'].textContent = targetLabel;
     ui.target.setAttribute('aria-label', targetLabel);
     if (mode === 'hall') message = 'Choose an activity above.';
@@ -3506,7 +3654,7 @@
     const responseObserver = window.PerformanceObserver?.supportedEntryTypes?.includes('resource')
       ? new PerformanceObserver(entries => {
         const prior = pending;
-        if (!prior || prior.kind !== 'strike') return;
+        if (!prior || !['strike', 'wild-strike'].includes(prior.kind)) return;
         for (const entry of entries.getEntries()) {
           if (entry.name !== prior.transportURL || entry.initiatorType !== 'fetch'
             || entry.startTime < prior.transportStartedAt || entry.startTime >= prior.transportUntil

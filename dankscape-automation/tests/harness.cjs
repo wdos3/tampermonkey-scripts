@@ -76,7 +76,7 @@ function fixture(t, options = {}) {
   }
 
   function renderContent(token = 'fixture-token', cooldown = false) {
-    document.querySelector('section.content').innerHTML = mode === 'diary' ? options.diaryContent(state, token) : mode === 'slayer' ? options.slayerContent(state, token) : mode === 'quest' ? options.questContent(state, token) : mode === 'arena' ? arenaContent(state.arena, token, cooldown)
+    document.querySelector('section.content').innerHTML = mode === 'wild' ? options.wildContent(state, token) : mode === 'diary' ? options.diaryContent(state, token) : mode === 'slayer' ? options.slayerContent(state, token) : mode === 'quest' ? options.questContent(state, token) : mode === 'arena' ? arenaContent(state.arena, token, cooldown)
       : mode === 'raid' ? raidContent(state.raid, token, cooldown, options.raidCatalog) : content(skill, token, cooldown, options.locked);
   }
   if (mode !== 'gather') renderContent();
@@ -209,6 +209,7 @@ function fixture(t, options = {}) {
     const startedAt = clock.now;
     const requestURL = new URL(form.getAttribute('action') || window.location.href, window.location.href).href;
     state.requests.push(payload);
+    if (mode === 'wild' && !form.matches('.quick-eat, .quick-drink')) { options.wildSubmit(payload, state, window, startedAt); return; }
     if (['clue', 'altar', 'shop'].includes(mode)) { options.deedSubmit?.(payload, state, window); return; }
     if (mode === 'craft') { options.craftSubmit?.(payload, state, window); return; }
     if (mode === 'diary') { options.diarySubmit?.(payload, state, window); return; }
@@ -237,7 +238,7 @@ function fixture(t, options = {}) {
   window.eval(source);
   const ui = document.getElementById('dankscape-gather-assistant').shadowRoot;
   ui.addEventListener('click', event => {
-    if (['return-activity', 'quest-navigation', 'verify-link'].includes(event.target.id)) {
+    if (event.target.matches('a[href]')) {
       event.preventDefault();
       state.navigations.push(event.target.href);
     }

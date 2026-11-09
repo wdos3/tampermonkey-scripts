@@ -1,6 +1,6 @@
 # DankScape Assistant
 
-A standalone Tampermonkey userscript for gathering, bulk crafting, arena combat, raids, quests, Slayer, Diaries, and Clue Trails. Version **1.13.0** adds gathering and crafting level targets, live XP remaining, and automatic stopping at the chosen level. The trail runner submits recognized puzzles, travels to deed activities, checks authoritative progress, and collects the final reward. Unseen puzzle formats pause for manual completion. Continuous modes share preferences, support a 0.1-second delay, and retain their budgets across verification returns. Additional Google challenges remain manual. The file and Tampermonkey identity remain **DankScape Gathering Assistant** / `dankscape-gather.user.js`.
+A standalone Tampermonkey userscript for gathering, bulk crafting, arena combat, raids, wilderness bosses, quests, Slayer, Diaries, and Clue Trails. Version **1.14.0** adds daily wilderness boss runs through depth 15 and an automatic return to the arena. The trail runner submits recognized puzzles, travels to deed activities, checks authoritative progress, and collects the final reward. Unseen puzzle formats pause for manual completion. Continuous modes share preferences, support a 0.1-second delay, and retain their budgets across verification returns. Additional Google challenges remain manual. The file and Tampermonkey identity remain **DankScape Gathering Assistant** / `dankscape-gather.user.js`.
 
 Version 1.2.1 strengthens panel startup and recovery. The panel appears on all DankScape pages; Start is available only on supported activity pages with an eligible target.
 
@@ -12,13 +12,13 @@ For a first installation, install [Tampermonkey](https://www.tampermonkey.net/),
 
 ### Install and automatic updates
 
-Install [v1.13.0](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js) from this public repository. Existing installations pointing to the retired repository need this one-time reinstall. Accept Tampermonkey's update of the existing script; its name and namespace remain unchanged to preserve settings.
+Install [v1.14.0](https://raw.githubusercontent.com/wdos3/tampermonkey-scripts/main/dankscape-automation/dankscape-gather.user.js) from this public repository. Existing installations pointing to the retired repository need this one-time reinstall. Accept Tampermonkey's update of the existing script; its name and namespace remain unchanged to preserve settings.
 
 Enable **Check for updates** in the script's Tampermonkey settings. If a per-script URL override exists, replace both **Update URL** and **Download URL** with the install link above. Future higher-version commits on `main` use this URL without requiring GitHub sign-in. Run **Check for userscript updates** once, then reload DankScape after installation.
 
 For future releases, increase `@version`, the visible `VERSION`, and the package versions together before pushing. Installed-profile update behavior has not been verified.
 
-The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, Slayer, Diaries, Crafting, or Clues. Ordinary page loads start stopped. **Start** begins the current mode, including Clue Trails; **Craft all** starts ordinary batch crafting. **Stop** or **Esc** stops a continuous run. **Alt + Shift + G** invokes the current action. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, task travel, saved verification handoffs, and opted-in native raid starts can continue across page loads.
+The panel is titled **DankScape Assistant**. Its links open Gathering, Combat, Raids, Quests, Slayer, Diaries, Crafting, Clues, or Wilderness. Ordinary page loads start stopped. **Start** begins the current mode, including Clue Trails; **Craft all** starts ordinary batch crafting. **Stop** or **Esc** stops a continuous run. **Alt + Shift + G** invokes the current action. A request already sent may still finish after Stop. Explicit restoration, confirmed stalled-response recovery, task travel, saved verification handoffs, and opted-in native raid starts can continue across page loads.
 
 Expand **Run limits**, **Food & healing**, **Potions**, or **Recovery** to edit their settings. Repeated instructions and the text beneath Start/Stop were removed; status and counters remain visible. Saved settings and keyboard shortcuts still work. Normal sound-readiness text is hidden; audio errors remain visible.
 
@@ -115,6 +115,16 @@ The original disappearance was reported across all pages, but the installed exte
 | Clues | Choose scrolls and limits, then press Start. | Continue the current trail, submit recognized puzzles, perform deeds, confirm the reward, and stop at the trail limit. |
 
 The script preserves the game's current equipment, combat style, and prayer. Normal combat stays in the selected location; recovery can travel back to the saved arena area after verification or when you choose Restore & resume. It does not switch enemies during an active fight, change combat style, buy food or potions, or automate PvP. Single-boss raid repetition summons the selected boss after a confirmed defeat. All-boss mode selects its next boss from the native catalogue; every new raid ID still requires confirmation from the saved summon handoff.
+
+## Daily wilderness bosses
+
+Open **Wilderness** in the Assistant, or follow **Enter the Wilderness** from the arena, configure the shared limits/food/potions, and press **Start** in the Assistant. Start works at the entrance, partway through a trip, or during an existing boss encounter. It enters, ventures deeper, and uses the native **Hunt it** / **Attack** forms for Revenant Knight (depth 5), Chaos Fiend (9), and Voidborn Tyrant (13). Each boss is hunted once; **Slain today — it returns tomorrow** skips kills from earlier runs. Hunt it already attacks, so it counts as one action and may require immediate healing.
+
+After finishing available bosses, continue to **15 / 15**, use **Retreat to the Inn**, and open the ordinary arena page, stopped. The run does not attack nearby players or change equipment, combat style, or prayer. Wilderness exposure to other players remains part of the native game.
+
+The usual delay, energy reserve, action/time limits, food allowance, and selected potion buffs apply across the whole trip. Travel does not count as an attack. Healing takes priority after damage, including the finishing blow. Potions are maintained before boss actions, with no extra drink merely to travel or leave. Raise the shared action limit if the bosses need more than its default 100 attacks; ordinary limits, death, missing food, and Stop can end the run before departure.
+
+Verification and confirmed-response recovery retain depth, exact current boss, attempted/completed bosses, original deadline, and cumulative budgets. Complete any Google challenge manually. A changed hero, unexpected depth/boss, changed controls, or an unconfirmed request pauses instead of repeating a hunt or move. Unlike shared raids, these encounters belong to this hero: decreased HP for the same boss/depth, or its native daily completion marker, can confirm a lost response. Repeated zero-damage turns require the corresponding completed native response.
 
 ## All-boss raid cycles
 
@@ -335,3 +345,5 @@ For Diaries, open `/diaries.php?verification=manual` on that server. Choose Volc
 Use `/diaries.php?verification=automatic` in a fresh fixture session for the same scenario with a native mock Continue form. The Assistant should click it once and finish without manual verification input. The mock contains no Google CAPTCHA and contacts only localhost.
 
 For v1.11.0 checks on the same server, `/raid.php` provides two mock bosses with daily allowances of one and two. Enable all-boss mode, choose X=3, and use the game's native Summon control. `/craft.php?skill=cooking` has 10,000 test ingredients for Craft all; allow at least ten actions. `/clue.php` now provides a complete mock nonogram → altar deed → reward scenario for Start; it stops after one trail. Use separate tabs/fresh sessions for independent runs.
+
+For v1.14.0, all 455 automated tests and syntax checks pass. Live native controls completed all three wilderness bosses once, healed damage, reached depth 15, retreated to the Inn, and reopened the arena. On `scripts/preview.cjs`, `/wild.php` runs the actual userscript against the modeled controls. Both normal and deliberately lost-response browser runs completed nine attacks, nine meals, one maintained Attack potion, fourteen depth moves, and return to the stopped arena; the latter used one recovery read with no duplicate move. Both browser logs had no warnings/errors. Installed Tampermonkey execution on the live account remains unverified.

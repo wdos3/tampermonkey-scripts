@@ -103,6 +103,23 @@ function raidContent(boss = { id: '123', name: 'Fixture Boss', hp: 30, maximum: 
       ${board || (boss.hp === 0 ? '<div class="card"><h3>Damage Board</h3><p>This boss has been defeated. Loot was shared among its attackers.</p><a href="/raid.php">← All raids</a></div>' : '')}`;
 }
 
+function wildernessContent(state, token = 'fixture-token') {
+  const command = (label, action, key = '', attack = false) => `<form method="post" data-ajax><input type="hidden" name="csrf" value="${token}"><input type="hidden" name="action" value="${action}">
+    ${key ? `<input type="hidden" name="boss" value="${key}">` : ''}<button type="submit" ${attack ? 'data-label="Attack"' : ''}>${label}</button></form>`;
+  const entrance = `<div class="card"><h1>The Wilderness</h1>${state.depth === 0 ? command('Enter the Wilderness', 'enter')
+    : `<p>⚔ Exposed at <strong>Wilderness depth ${state.depth}</strong> / 15.</p>${state.depth < 15 ? command('Venture deeper ⤓', 'deeper') : ''}${command('Retreat to the Inn', 'leave')}`}</div>`;
+  if (!state.depth) return entrance;
+  const battle = state.battle;
+  // Native headings, controls, HP labels, unlocks, and daily marker were inspected live.
+  // Action values and keys here are synthetic; production clicks the native form.
+  return `${entrance}<div class="card"><h2>Hunters nearby</h2>${command('Attack player', 'pvp', 'player')}</div>
+    <div class="card"><h2>Wilderness bosses</h2>${battle ? `<h3>${battle.name} <span class="dim">— in combat</span></h3>
+      <div class="stat-row"><span>Boss HP</span><strong>${battle.hp.toLocaleString('en-US')} / ${battle.maximum.toLocaleString('en-US')}</strong></div>
+      ${command('Attack', 'boss-attack', battle.key, true)}`
+    : `<div class="row">${state.bosses.map(boss => `<div class="card"><h3>${boss.name}</h3><div class="stat-row"><span>Requires</span><strong>Depth ${boss.required}</strong></div>
+      ${boss.slain ? '<p>✓ Slain today — it returns tomorrow.</p>' : boss.required <= state.depth ? command('Hunt it', 'hunt', boss.key) : `<p>Reach <strong>depth ${boss.required}</strong> to hunt this.</p>`}</div>`).join('')}</div>`}</div>`;
+}
+
 function page(skill = 'mining', locked = false, mode = 'gather') {
   const initial = mode === 'arena' ? arenaContent() : mode === 'raid' ? raidContent() : content(skill, 'fixture-token', false, locked);
   return `<!doctype html><html><head><meta charset="utf-8"><title>Gathering Assistant — Local Test</title></head><body>
@@ -112,4 +129,4 @@ function page(skill = 'mining', locked = false, mode = 'gather') {
   </body></html>`;
 }
 
-module.exports = { SKILLS, arenaContent, raidContent, content, foodMarkup, potionMarkup, page, skillProgressMarkup };
+module.exports = { SKILLS, arenaContent, raidContent, content, foodMarkup, potionMarkup, page, skillProgressMarkup, wildernessContent };

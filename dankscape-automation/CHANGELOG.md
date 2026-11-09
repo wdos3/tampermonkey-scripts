@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.14.0 — 2026-11-09
+
+- Add a Wilderness mode: enter or continue the current trip, hunt each native daily boss at its required depth, skip Slain today cards, reach depth 15, retreat to the Inn, and return to the stopped arena. Never target the nearby-player controls.
+- Reuse shared food, immediate healing, potion maintenance, limits, locking, manual-verification continuation, and confirmed-response recovery. Preserve exact depth/boss and attempted/completed boss names; uncertain requests and changed encounters pause without repeating a hunt or move. Native Hunt it attacks count toward the action budget.
+- Add fourteen wilderness regression cases and extend the localhost browser fixture. All 455 tests and syntax checks pass. Live native controls completed the three bosses and departure; the userscript completed a local browser cycle with food and potion maintenance. Live installed Tampermonkey execution remains unverified.
+
 ## 1.13.0 — 2026-10-29
 
 - Add an optional shared target level (1–200; 0 disables it) for standalone gathering and crafting. Display XP remaining using the observed cumulative curve and native current-level progress. Stop after confirmed results reach the target, including when restoring a saved run. Pause on missing or changed-curve progress; retain other limits and existing quest/clue objectives.

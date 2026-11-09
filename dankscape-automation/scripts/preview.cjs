@@ -3,13 +3,13 @@
 const http = require('node:http');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { arenaContent, raidContent, foodMarkup, potionMarkup, page, skillProgressMarkup } = require('../tests/fixture.cjs');
+const { arenaContent, raidContent, foodMarkup, potionMarkup, page, skillProgressMarkup, wildernessContent } = require('../tests/fixture.cjs');
 
 const directory = join(__dirname, '..');
 const port = Number(process.env.DANKSCAPE_PREVIEW_PORT || 0);
 const server = http.createServer((request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1');
-  if (request.method === 'POST' && ['/arena.php', '/raid.php', '/gather.php', '/eat.php', '/drink.php'].includes(url.pathname)) {
+  if (request.method === 'POST' && ['/arena.php', '/raid.php', '/wild.php', '/gather.php', '/eat.php', '/drink.php'].includes(url.pathname)) {
     request.resume();
     response.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }).end('Local mock action response.');
     return;
@@ -20,7 +20,7 @@ const server = http.createServer((request, response) => {
   }
   let body;
   let type;
-  if (['/gather.php', '/game.php', '/arena.php', '/raid.php', '/characters.php', '/guard.php'].includes(url.pathname)) {
+  if (['/gather.php', '/game.php', '/arena.php', '/raid.php', '/wild.php', '/characters.php', '/guard.php'].includes(url.pathname)) {
     const requested = url.searchParams.get('skill') || 'mining';
     const skill = ['mining', 'woodcutting', 'fishing', 'herblore'].includes(requested) ? requested : 'mining';
     const mode = url.pathname === '/arena.php' ? 'arena' : url.pathname === '/raid.php' ? 'raid' : 'gather';
@@ -31,7 +31,7 @@ const server = http.createServer((request, response) => {
         `<section class="content">${arenaContent({ active: false, zone, name: 'Field Mouse', hp: 8, log: '' })}</section>`);
     }
     if (url.pathname === '/guard.php') {
-      const from = ['gather', 'arena', 'raid'].includes(url.searchParams.get('from')) ? url.searchParams.get('from') : 'gather';
+      const from = ['gather', 'arena', 'raid', 'wild'].includes(url.searchParams.get('from')) ? url.searchParams.get('from') : 'gather';
       body = body.replace(/<section class="content">[\s\S]*?<\/section>/,
         `<section class="content"><h1>Mock human check</h1><p>This local test contains no CAPTCHA and never contacts DankScape.</p><a href="/${from}.php">Complete mock check and return to the default page</a></section>`);
     }
@@ -61,7 +61,7 @@ const server = http.createServer((request, response) => {
     body = readFileSync(join(directory, 'tests', 'browser-fixture.js'));
     type = 'text/javascript; charset=utf-8';
   } else if (url.pathname === '/fixture-renderers.js') {
-    body = `'use strict';\n${arenaContent.toString()}\n${raidContent.toString()}\n${potionMarkup.toString()}\n${skillProgressMarkup.toString()}\n`;
+    body = `'use strict';\n${arenaContent.toString()}\n${raidContent.toString()}\n${potionMarkup.toString()}\n${skillProgressMarkup.toString()}\n${wildernessContent.toString()}\n`;
     type = 'text/javascript; charset=utf-8';
   } else if (url.pathname === '/dankscape-gather.user.js') {
     body = readFileSync(join(directory, 'dankscape-gather.user.js'));
